@@ -15,9 +15,7 @@ services:
       - 'migrate'
     volumes:
       - ./migrations:/flyway/sql:ro
-    networks:
-      tripeasy_net:
-        ipv4_address: 172.18.0.20
+    networks: [tripeasy_net]
     restart: 'no'
 
   api:

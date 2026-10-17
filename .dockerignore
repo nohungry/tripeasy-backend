@@ -1,0 +1,7 @@
+node_modules
+pgdb-data
+uploads
+.git
+.env
+.env.*
+!.env.example
