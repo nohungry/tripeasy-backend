@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const sgMail = require('@sendgrid/mail');
+const mailer = require('../utils/mailer');
 const svgCaptcha = require('svg-captcha');
 
 const resStatus = require('../utils/resStatus');
@@ -257,13 +257,10 @@ async function post_user_forgetPW(req, res, next) {
     const reset_token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
 
     // 📬 發送 Email
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
     const resetUrl = `${process.env.FRONTEND_PATH}/admin/resetpw?token=${reset_token}`;
 
-    await sgMail.send({
+    await mailer.send({
       to: email,
-      from: process.env.SENDGRID_FROM_EMAIL,
       subject: 'TripEasy 密碼重設連結',
       html: `
                 <p>您好，親愛的用戶 : </p><br>
