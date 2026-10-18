@@ -52,7 +52,16 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(require('./utils/storage/local').UPLOAD_DIR));
+app.use(
+  '/uploads',
+  express.static(require('./utils/storage/local').UPLOAD_DIR, {
+    // 上傳檔一律當成被動內容：禁止 MIME 嗅探，並以 CSP sandbox 阻止 HTML/SVG 執行 script
+    setHeaders: (res) => {
+      res.set('X-Content-Type-Options', 'nosniff');
+      res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    },
+  })
+);
 
 // ─── 路由設定 ───────────────────────────────────────
 app.get('/', (req, res) => {
