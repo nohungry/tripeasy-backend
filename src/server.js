@@ -52,6 +52,7 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(require('./utils/storage/local').UPLOAD_DIR));
 
 // ─── 路由設定 ───────────────────────────────────────
 app.get('/', (req, res) => {
