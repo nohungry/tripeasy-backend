@@ -1,4 +1,6 @@
 const express = require('express');
+// Express 4 不會接住 async handler 的 rejection；這個套件把它導到既有的 error handler
+require('express-async-errors');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const path = require('path');
