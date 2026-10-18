@@ -143,7 +143,7 @@ async function postuserLoginGoogle(req, res, next) {
   try { // <--- 增加 try 區塊
     // 1. 用 code 換 access_token
     const tokenRes = await axios.post(
-      'https://oauth2.googleapis.com/token',
+      process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
       qs.stringify({
         code,
         client_id: process.env.GOOGLE_CLIENT_ID,
@@ -160,7 +160,7 @@ async function postuserLoginGoogle(req, res, next) {
 
     // Step 2. 拿 user info
     const { access_token } = tokenRes.data;
-    const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+    const userInfoRes = await axios.get(process.env.GOOGLE_USERINFO_URL || 'https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` },
     });
 
