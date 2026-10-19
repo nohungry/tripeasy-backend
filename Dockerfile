@@ -1,25 +1,19 @@
-# 乾淨版 Dev Dockerfile
-FROM node:22.14.0
-
+# base：共用的 Node 版本與依賴清單
+FROM node:22.14.0 AS base
 WORKDIR /usr/backend
+COPY package.json package-lock.json ./
 
-# 安裝 git（optional，之後若需要拉 repo 可以用）
-RUN apt-get update && apt-get install -y git
-
-# 只安裝 production 需要的時候，這邊先不 npm install
-# 因為會用 volumes 綁本地檔案，保證每次都是最新
-
-# 複製 package.json 和 package-lock.json
-COPY package*.json ./
-
-# 🔥 安裝所有依賴（包含 devDependencies）
-RUN npm install
-
-# 複製所有原始碼（包括 src/、routes/ 等）
+# dev：含 devDependencies（nodemon），原始碼由 compose bind mount
+FROM base AS dev
+RUN npm ci
 COPY . .
-
-ARG PORT=3000
-EXPOSE ${PORT}
-
-
+EXPOSE 3000
 CMD ["npm", "run", "dev"]
+
+# prod：只裝 production 依賴
+FROM base AS prod
+ENV NODE_ENV=production
+RUN npm ci --omit=dev
+COPY . .
+EXPOSE 3000
+CMD ["node", "src/server.js"]

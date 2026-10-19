@@ -1,5 +1,5 @@
 // src/utils/firebaseUpload.js
-const bucket = require('../config/firebase');
+const storage = require('./storage');
 // const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -10,48 +10,15 @@ const bucket = require('../config/firebase');
  * @returns {Promise<string>} - 回傳圖片的公開 URL
  */
 async function uploadImageToFirebase(file, folder = 'uploads', prefix = '') {
+  const timestamp = new Date().toISOString();
+  const filename = `${folder}/${prefix}${timestamp}-${file.originalname}`;
   try {
-    // 生成唯一檔案名稱
-    const timestamp = new Date().toISOString();
-    const filename = `${folder}/${prefix}${timestamp}-${file.originalname}`;
-    
-    // 建立 Firebase Storage 檔案參考
-    const blob = bucket.file(filename);
-    
-    // 建立上傳串流
-    const blobStream = blob.createWriteStream({
-      metadata: {
-        contentType: file.mimetype,
-        metadata: {
-          firebaseStorageDownloadTokens: timestamp,
-        },
-      },
-    });
-
-    // 回傳 Promise 來處理異步上傳
-    return new Promise((resolve, reject) => {
-      blobStream.on('error', (error) => {
-        console.error('❌ Firebase 上傳錯誤:', error);
-        reject(new Error(`Firebase 上傳失敗: ${error.message}`));
-      });
-
-      blobStream.on('finish', async () => {
-        try {
-          // 生成公開存取 URL
-          const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filename)}?alt=media`;
-          console.log(`✅ 圖片上傳成功: ${filename}`);
-          resolve(publicUrl);
-        } catch (error) {
-          reject(new Error(`URL 生成失敗: ${error.message}`));
-        }
-      });
-
-      // 開始上傳
-      blobStream.end(file.buffer);
-    });
+    const url = await storage.upload(file.buffer, filename, file.mimetype);
+    console.log(`✅ 圖片上傳成功: ${filename}`);
+    return url;
   } catch (error) {
-    console.error('❌ Firebase 上傳準備錯誤:', error);
-    throw new Error(`Firebase 上傳準備失敗: ${error.message}`);
+    console.error('❌ 圖片上傳錯誤:', error);
+    throw new Error(`圖片上傳失敗: ${error.message}`);
   }
 }
 
@@ -151,19 +118,9 @@ async function uploadUserAvatar(file, userId = '') {
  */
 async function deleteImageFromFirebase(fileUrl) {
   try {
-    // 從 URL 中提取檔案路徑
-    const urlParts = fileUrl.split('/o/');
-    if (urlParts.length < 2) {
-      throw new Error('無效的 Firebase Storage URL');
-    }
-    
-    const filePath = decodeURIComponent(urlParts[1].split('?')[0]);
-    const file = bucket.file(filePath);
-    
-    await file.delete();
-    console.log(`✅ 檔案刪除成功: ${filePath}`);
-    return true;
-    
+    const ok = await storage.remove(fileUrl);
+    if (ok) console.log(`✅ 檔案刪除成功: ${fileUrl}`);
+    return ok;
   } catch (error) {
     console.error('❌ 檔案刪除失敗:', error);
     return false;
