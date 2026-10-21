@@ -14,6 +14,7 @@ const collectionRouter = require('./routes/collection');
 const automationRouter = require('./routes/automation');
 const purchasesRouter = require('./routes/purchases');
 const productRouter = require('./routes/product');
+const productAdminRouter = require('./routes/product_admin');
 const homeRouter = require('./routes/home');
 const cartRouter = require('./routes/cart');
 const discountsRouter = require('./routes/discounts');
@@ -110,7 +111,7 @@ app.use(`/api/${version}/user/newebpay`, newebpayRouter);
 app.use(`/api/${version}/admin`, adminRouter);
 
 // 編號 46 : 管理者新增旅遊項目
-app.use(`/api/${version}/admin/product`, productRouter);
+app.use(`/api/${version}/admin/product`, productAdminRouter);
 
 // 編號 57~59 : 促銷管理
 app.use(`/api/${version}/admin/promotions`, promotionRouter);
