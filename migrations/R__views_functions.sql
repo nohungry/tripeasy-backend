@@ -104,8 +104,12 @@ RETURNS TABLE(
 )
 LANGUAGE sql STABLE AS $$
 SELECT
-    tb.*,
-    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = 使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態"
+    tb."旅遊編號", tb."上下架狀態", tb."通知狀態", tb."旅遊名稱", tb."旅遊標語", tb."旅遊描述",
+    tb."大分類", tb."小分類", tb."所屬國家", tb."所屬地區", tb."建立時間", tb."更新時間",
+    tb."價錢", tb."促銷價錢", tb."促銷開始日期", tb."促銷結束日期", tb."旅遊開始日期",
+    tb."旅遊結束日期", tb."旅遊天數", tb."旅遊代表圖 Url", tb."偏好分類1", tb."偏好分類2",
+    tb."偏好分類3", tb."異動通知內容",
+    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_travel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態"
 FROM tour_base tb
 WHERE tb."上下架狀態" = 1
 $$;
@@ -120,7 +124,7 @@ SELECT t.tour_id,
        (ROW_NUMBER() OVER (ORDER BY count(oi.order_item_id) DESC, t.tour_id ASC))::integer
 FROM tour t
 LEFT JOIN order_item oi ON oi.tour_id = t.tour_id AND oi.payment_status = 1
-WHERE t.status = 1 AND t.type = 大分類 AND t.item = 小分類
+WHERE t.status = 1 AND t.type = tour_travel_popular.大分類 AND t.item = tour_travel_popular.小分類
 GROUP BY t.tour_id
 $$;
 
@@ -134,7 +138,7 @@ SELECT t.tour_id,
        (ROW_NUMBER() OVER (ORDER BY count(f.favorite_id) DESC, t.tour_id ASC))::integer
 FROM tour t
 LEFT JOIN favorite f ON f.tour_id = t.tour_id
-WHERE t.status = 1 AND t.type = 大分類 AND t.item = 小分類
+WHERE t.status = 1 AND t.type = tour_travel_most_favorited.大分類 AND t.item = tour_travel_most_favorited.小分類
 GROUP BY t.tour_id
 $$;
 
@@ -216,7 +220,7 @@ SELECT
     tb."偏好分類1" AS "偏好設定分類 1",
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
-    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = 使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_tour_detail.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
@@ -319,7 +323,7 @@ SELECT
     tb."偏好分類1" AS "偏好設定分類 1",
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
-    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = 使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_hotel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
@@ -340,7 +344,6 @@ JOIN tour t ON t.tour_id = tb."旅遊編號"
 JOIN hotel h ON h.tour_id = t.tour_id
 LEFT JOIN hotel_room r ON r.hotel_id = h.hotel_id
 WHERE tb."上下架狀態" = 1
-ORDER BY r.created_at, r.hotel_room_id
 $$;
 
 -- 說明：每列只帶一筆菜單或一筆營業時間，另一邊為 NULL（#34）；兩者都沒有時保留一列（#33）。
@@ -422,7 +425,7 @@ SELECT
     tb."偏好分類1" AS "偏好設定分類 1",
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
-    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = 使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_restaurant.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
