@@ -3,9 +3,9 @@
 --
 -- repeatable migration（R__）：內容一改，下次 flyway migrate 就重新套用，所以開頭先
 -- DROP ... IF EXISTS ... CASCADE 全部 21 個物件，再依相依順序 CREATE。
--- 本檔目前放 A 組（商品與首頁）9 個；B、C 組由後續工作補上。
+-- 本檔目前放 A 組（商品與首頁）9 個、B 組（購物車、訂位、折扣、結帳）8 個；C 組由後續工作補上。
 
--- 先 DROP 全部 21 個物件（B、C 組還不存在也不會錯）。依賴者排前面；CASCADE 兼收其餘相依。
+-- 先 DROP 全部 21 個物件（C 組還不存在也不會錯）。依賴者排前面；CASCADE 兼收其餘相依。
 -- function 的 DROP 要帶參數型別（簽章要吻合）。
 DROP VIEW IF EXISTS "user_level_review_forHome" CASCADE;
 DROP VIEW IF EXISTS "user_user_level" CASCADE;
@@ -489,3 +489,181 @@ SELECT
 FROM review r
 JOIN "user_user_level" uu ON uu."使用者編號" = r.user_id
 WHERE r.type = 'web';
+
+-- ========== B 組：購物車、訂位、折扣、結帳 ==========
+
+-- 契約：docs/db-contract.md `user_cartList`
+-- 每個 cart_item 一列，帶 cart.user_id；tour_base 含全部行程（#7），INNER JOIN 與 LEFT JOIN 結果相同。
+-- 促銷價錢直接取 tour_base（只在促銷期間內有值，#10）；singleTotal_Price ＝ 有效單價 × quantity（#12）；多帶 cart_item_id（#35）。
+CREATE VIEW "user_cartList" AS
+SELECT
+    c.user_id,
+    c.cart_id,
+    ci.tour_id,
+    tb."大分類",
+    tb."小分類",
+    tb."旅遊名稱",
+    tb."旅遊代表圖 Url",
+    tb."價錢",
+    tb."促銷價錢",
+    ci.quantity,
+    ci.start_date,
+    ci.end_date,
+    ci.room_type,
+    (COALESCE(tb."促銷價錢", tb."價錢") * ci.quantity)::double precision AS "singleTotal_Price",
+    ci.cart_item_id
+FROM cart_item ci
+JOIN cart c ON c.cart_id = ci.cart_id
+JOIN tour_base tb ON tb."旅遊編號" = ci.tour_id;
+
+-- 契約：docs/db-contract.md `hotel_booking`
+-- 恆回 1 列（#18）：找不到 (行程, 房型) 時 booking_count、room_count 都是 0。
+-- booking_count 數 order_item 列數，payment_status IN (-1, 0, 1)（#5），日期區間為半開 [入住, 退房)（#17），型別 integer（#25）。
+-- 契約沒有說 hotel 的 booking_count 要不要加總 quantity（#15 只定了餐廳）；hotel 的 quantity 是人數，所以數列數（一列一間）。
+CREATE FUNCTION hotel_booking(房型 varchar, 入住日期 timestamp, 退房日期 timestamp, 旅遊編號 uuid)
+RETURNS TABLE(booking_count integer, room_count integer)
+LANGUAGE sql STABLE AS $$
+SELECT
+    CASE WHEN room.n > 0 THEN (
+        SELECT count(*)::integer FROM order_item oi
+        WHERE oi.tour_id = hotel_booking.旅遊編號
+          AND oi.room_type = hotel_booking.房型
+          AND oi.payment_status IN (-1, 0, 1)
+          AND oi.start_date < hotel_booking.退房日期
+          AND oi.end_date > hotel_booking.入住日期
+    ) ELSE 0 END,
+    COALESCE(room.total, 0)::integer
+FROM (
+    SELECT count(*) AS n, sum(hr.room_count) AS total
+    FROM hotel h
+    JOIN hotel_room hr ON hr.hotel_id = h.hotel_id
+    WHERE h.tour_id = hotel_booking.旅遊編號 AND hr.title = hotel_booking.房型
+) room
+$$;
+
+-- 契約：docs/db-contract.md `restaurant_booking`
+-- 找得到該行程的餐廳才回 1 列。忽略參數 1（#16，controller 恆傳 NULL）；booking_count ＝ order_item.quantity 加總（#15），
+-- payment_status IN (-1, 0, 1)（#5），型別 integer（#25）。
+CREATE FUNCTION restaurant_booking(預約時間 timestamp, 旅遊編號 uuid)
+RETURNS TABLE(booking_count integer, reservation_limit integer)
+LANGUAGE sql STABLE AS $$
+SELECT
+    COALESCE((
+        SELECT sum(oi.quantity) FROM order_item oi
+        WHERE oi.tour_id = r.tour_id AND oi.payment_status IN (-1, 0, 1)
+    ), 0)::integer,
+    r.reservation_limit
+FROM restaurant r
+WHERE r.tour_id = restaurant_booking.旅遊編號
+$$;
+
+-- 契約：docs/db-contract.md `restaurant_isClosed`（識別字小寫，不加引號）
+-- 恆回 1 列（controller 讀 rows[0].isclosed）。#19：只看 restaurant_business 有沒有對應星期的列，沒有＝公休；
+-- 預約時間為 NULL 或餐廳不存在時回 false。星期用與 restaurant_business_parsed 相同的 TRIM(TO_CHAR(..., 'FMDay'))。
+CREATE FUNCTION restaurant_isclosed(預約時間 timestamp, 旅遊編號 uuid)
+RETURNS TABLE(isclosed boolean)
+LANGUAGE sql STABLE AS $$
+SELECT CASE
+    WHEN restaurant_isclosed.預約時間 IS NULL THEN false
+    WHEN NOT EXISTS (SELECT 1 FROM restaurant r WHERE r.tour_id = restaurant_isclosed.旅遊編號) THEN false
+    ELSE NOT EXISTS (
+        SELECT 1 FROM restaurant r
+        JOIN restaurant_business b ON b.restaurant_id = r.restaurant_id
+        WHERE r.tour_id = restaurant_isclosed.旅遊編號
+          AND b.week = TRIM(TO_CHAR(restaurant_isclosed.預約時間, 'FMDay'))
+    )
+END
+$$;
+
+-- 契約：docs/db-contract.md `restaurant_business_parsed`
+-- 每個 (餐廳, 星期, 營業時段) 一列。business_hours 以 ',' 分時段、'~' 分起訖；結束 00:00 視為 24:00，轉成 23:59:59（#20）；
+-- 無法解析的時段忽略（#21）。先用正規表示式篩出合法時段，才轉 time，所以不會因壞資料丟例外。
+CREATE VIEW restaurant_business_parsed AS
+SELECT
+    r.tour_id,
+    b.week,
+    (m.parts[1] || ':' || m.parts[2])::time AS start_time,
+    CASE WHEN (m.parts[3] || ':' || m.parts[4])::time = time '00:00' THEN time '23:59:59'
+         ELSE (m.parts[3] || ':' || m.parts[4])::time END AS end_time
+FROM restaurant_business b
+JOIN restaurant r ON r.restaurant_id = b.restaurant_id
+CROSS JOIN LATERAL unnest(string_to_array(b.business_hours, ',')) AS slot(txt)
+CROSS JOIN LATERAL (
+    SELECT regexp_match(btrim(slot.txt), '^([01]?[0-9]|2[0-3]):([0-5][0-9])\s*~\s*([01]?[0-9]|2[0-3]):([0-5][0-9])$') AS parts
+) m
+WHERE m.parts IS NOT NULL;
+
+-- 契約：docs/db-contract.md `user_couponList`
+-- 每個 user_coupon 一列，帶 coupon 內容；不過濾 status、不過濾過期（-1 原樣輸出，#37）；
+-- expire_date 與 expired_date 同值（#36）；discount 原值輸出（折抵金額，#1）。
+CREATE VIEW "user_couponList" AS
+SELECT
+    uc.user_id,
+    uc.coupon_id,
+    c.code,
+    c.discount,
+    c.description,
+    c.expire_date,
+    c.expire_date AS expired_date,
+    uc.status,
+    uc.order_id
+FROM user_coupon uc
+JOIN coupon c ON c.coupon_id = uc.coupon_id;
+
+-- 契約：docs/db-contract.md `user_level_point_coupon`
+-- 每位使用者的每張可用優惠卷一列：只列 status = 0 且未過期（#39，到期時刻本身仍算未過期，同 controller 的 now > expire_date）；
+-- 優惠卷採 LEFT JOIN，沒有可用優惠卷的使用者仍保留 1 列、優惠卷欄位為 NULL（#40）；
+-- user_level 採 LEFT JOIN、多筆取 updated_at 最新一筆（#22）；使用者旅遊積分 ＝ user_level.travel_point（#2）。
+CREATE VIEW "user_level_point_coupon" AS
+SELECT
+    u.user_id AS "使用者編號",
+    u.name AS "名稱",
+    u.email AS "信箱",
+    u.role AS "角色",
+    u.avatar_url AS "個人照片 Url",
+    u.preference1 AS "個人偏好 1",
+    u.preference2 AS "個人偏好 2",
+    u.preference3 AS "個人偏好 3",
+    ul.level AS "旅遊等級",
+    ul.name AS "旅遊等級名稱",
+    ul.badge_url AS "旅遊徽章 Url",
+    ul.travel_point AS "使用者旅遊積分",
+    cp.coupon_id AS "優惠卷編號",
+    cp.code AS "優惠卷代碼",
+    cp.discount AS "優惠卷折扣",
+    cp.description AS "優惠卷描述",
+    cp.expire_date AS "優惠卷期限"
+FROM "user" u
+LEFT JOIN LATERAL (
+    SELECT l.* FROM user_level l WHERE l.user_id = u.user_id
+    ORDER BY l.updated_at DESC, l.level_id LIMIT 1
+) ul ON true
+LEFT JOIN (
+    SELECT uc.user_id, c.coupon_id, c.code, c.discount, c.description, c.expire_date
+    FROM user_coupon uc
+    JOIN coupon c ON c.coupon_id = uc.coupon_id
+    WHERE uc.status = 0 AND c.expire_date >= now()
+) cp ON cp.user_id = u.user_id;
+
+-- 契約：docs/db-contract.md `user_orderList`
+-- 每個 order_item 一列，帶 tour_base；不篩 payment_status（#14）。
+-- 價錢、促銷價錢取下單當時的單價（#13）：total_price／NULLIF(quantity, 0)、NULLIF(discount_price, 0)／NULLIF(quantity, 0)；
+-- singleTotal_Price ＝ order_item.total_price（#12）；total_count ＝ 同訂單項目數，integer（#25）。
+CREATE VIEW "user_orderList" AS
+SELECT
+    oi.order_id,
+    oi.tour_id,
+    tb."大分類",
+    tb."小分類",
+    tb."旅遊名稱",
+    tb."旅遊代表圖 Url",
+    oi.total_price / NULLIF(oi.quantity, 0) AS "價錢",
+    NULLIF(oi.discount_price, 0) / NULLIF(oi.quantity, 0) AS "促銷價錢",
+    oi.quantity,
+    oi.start_date,
+    oi.end_date,
+    oi.room_type,
+    oi.total_price AS "singleTotal_Price",
+    (count(*) OVER (PARTITION BY oi.order_id))::integer AS total_count
+FROM order_item oi
+JOIN tour_base tb ON tb."旅遊編號" = oi.tour_id;
