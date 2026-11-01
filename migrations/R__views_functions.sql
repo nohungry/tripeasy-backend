@@ -3,9 +3,9 @@
 --
 -- repeatable migration（R__）：內容一改，下次 flyway migrate 就重新套用，所以開頭先
 -- DROP ... IF EXISTS ... CASCADE 全部 21 個物件，再依相依順序 CREATE。
--- 本檔目前放 A 組（商品與首頁）9 個、B 組（購物車、訂位、折扣、結帳）8 個；C 組由後續工作補上。
+-- 本檔目前放 A 組（商品與首頁）9 個、B 組（購物車、訂位、折扣、結帳）8 個、C 組（會員與後台）4 個。
 
--- 先 DROP 全部 21 個物件（C 組還不存在也不會錯）。依賴者排前面；CASCADE 兼收其餘相依。
+-- 先 DROP 全部 21 個物件。依賴者排前面；CASCADE 兼收其餘相依。
 -- function 的 DROP 要帶參數型別（簽章要吻合）。
 DROP VIEW IF EXISTS "user_level_review_forHome" CASCADE;
 DROP VIEW IF EXISTS "user_user_level" CASCADE;
@@ -667,3 +667,94 @@ SELECT
     (count(*) OVER (PARTITION BY oi.order_id))::integer AS total_count
 FROM order_item oi
 JOIN tour_base tb ON tb."旅遊編號" = oi.tour_id;
+
+-- ========== C 組：會員與後台 ==========
+
+-- 契約：docs/db-contract.md `user_favorite`
+-- 每筆 favorite 一列，帶 tour_base 的欄位（#11）；tour_base 含全部行程，下架行程的收藏也出現（#41、#7）；
+-- 建立時間 ＝ favorite.created_at（#43），不帶 tour_base 的 建立時間／更新時間；偏好分類取自行程（#42）。
+CREATE VIEW "user_favorite" AS
+SELECT
+    f.user_id AS "收藏人員編號",
+    f.created_at AS "建立時間",
+    f.favorite_id,
+    tb."旅遊編號", tb."上下架狀態", tb."通知狀態", tb."旅遊名稱", tb."旅遊標語", tb."旅遊描述",
+    tb."大分類", tb."小分類", tb."所屬國家", tb."所屬地區", tb."價錢", tb."促銷價錢",
+    tb."促銷開始日期", tb."促銷結束日期", tb."旅遊開始日期", tb."旅遊結束日期", tb."旅遊天數",
+    tb."旅遊代表圖 Url", tb."偏好分類1", tb."偏好分類2", tb."偏好分類3", tb."異動通知內容"
+FROM favorite f
+JOIN tour_base tb ON tb."旅遊編號" = f.tour_id;
+
+-- 契約：docs/db-contract.md `user_orders`
+-- 每個 order_item 一列（#44），只含 order_item.payment_status = 1（#6）；帶 tour_base 全部欄位（#11），
+-- 下架行程的購買紀錄也出現（#41）；view 內 ORDER BY orders.created_at 由新到舊（#45）。
+CREATE VIEW "user_orders" AS
+SELECT
+    o.user_id AS "使用者編號",
+    oi.order_item_id,
+    tb."旅遊編號", tb."上下架狀態", tb."通知狀態", tb."旅遊名稱", tb."旅遊標語", tb."旅遊描述",
+    tb."大分類", tb."小分類", tb."所屬國家", tb."所屬地區", tb."建立時間", tb."更新時間",
+    tb."價錢", tb."促銷價錢", tb."促銷開始日期", tb."促銷結束日期", tb."旅遊開始日期",
+    tb."旅遊結束日期", tb."旅遊天數", tb."旅遊代表圖 Url", tb."偏好分類1", tb."偏好分類2",
+    tb."偏好分類3", tb."異動通知內容",
+    oi.payment_status AS "付款狀態",
+    oi.quantity AS "數量",
+    oi.start_date AS "出發日期",
+    oi.total_price AS "小計",
+    oi.discount_price AS "促銷小計"
+FROM order_item oi
+JOIN orders o ON o.order_id = oi.order_id
+JOIN tour_base tb ON tb."旅遊編號" = oi.tour_id
+WHERE oi.payment_status = 1
+ORDER BY o.created_at DESC;
+
+-- 契約：docs/db-contract.md `user_order_item`
+-- 每個 order_item 一列（#46，只 JOIN 一對一的 orders、tour）；與 user_orders 同一個篩選：payment_status = 1（#6）；
+-- 欄位全部英文（#11）：order_item 的欄位 ＋ tour 的欄位（tour_id 只出現一次），多帶 使用者編號 ＝ orders.user_id、
+-- 不帶 orders 的地址電話（#47）。下架行程的項目也出現（#41）。
+CREATE VIEW "user_order_item" AS
+SELECT
+    oi.order_item_id,
+    o.user_id AS "使用者編號",
+    oi.order_id,
+    oi.tour_id,
+    oi.payment_status,
+    oi.total_price,
+    oi.discount_price,
+    oi.quantity,
+    oi.start_date,
+    oi.end_date,
+    oi.room_type,
+    t.type, t.item, t.status, t.title, t.slogan, t.tour_start_date, t.tour_end_date,
+    t.days, t.price, t.country, t.region, t.address, t.google_map_url, t.calendar_url,
+    t.preference1, t.preference2, t.preference3, t.notice, t.description, t.cover_image,
+    t.img1, t.img1_desc, t.img2, t.img2_desc, t.img3, t.img3_desc,
+    t.img4, t.img4_desc, t.img5, t.img5_desc, t.img6, t.img6_desc,
+    t.created_at, t.updated_at
+FROM order_item oi
+JOIN orders o ON o.order_id = oi.order_id
+JOIN tour t ON t.tour_id = oi.tour_id
+WHERE oi.payment_status = 1;
+
+-- 契約：docs/db-contract.md `user_adminList`
+-- 每位使用者一列；欄位 ＝ user ＋ user_level，鏡射 user_level_point_coupon 去掉優惠卷（#11），不含 password 等；
+-- 偏好為 smallint 數字（#49）；user_level 採 LEFT JOIN、多筆取 updated_at 最新一筆（#22）；積分 ＝ travel_point（#2）。
+CREATE VIEW "user_adminList" AS
+SELECT
+    u.user_id AS "使用者編號",
+    u.name AS "名稱",
+    u.email AS "信箱",
+    u.role AS "角色",
+    u.avatar_url AS "個人照片 Url",
+    u.preference1 AS "個人偏好 1",
+    u.preference2 AS "個人偏好 2",
+    u.preference3 AS "個人偏好 3",
+    ul.level AS "旅遊等級",
+    ul.name AS "旅遊等級名稱",
+    ul.badge_url AS "旅遊徽章 Url",
+    ul.travel_point AS "使用者旅遊積分"
+FROM "user" u
+LEFT JOIN LATERAL (
+    SELECT l.* FROM user_level l WHERE l.user_id = u.user_id
+    ORDER BY l.updated_at DESC, l.level_id LIMIT 1
+) ul ON true;
