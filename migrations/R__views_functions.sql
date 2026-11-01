@@ -710,7 +710,7 @@ ORDER BY o.created_at DESC;
 
 -- 契約：docs/db-contract.md `user_order_item`
 -- 每個 order_item 一列（#46，只 JOIN 一對一的 orders、tour）；與 user_orders 同一個篩選：payment_status = 1（#6）；
--- 欄位全部英文（#11）：order_item 的欄位 ＋ tour 的欄位（tour_id 只出現一次），多帶 使用者編號 ＝ orders.user_id、
+-- 欄位全部英文（#11）：order_item 的欄位 ＋ tour 的欄位（tour_id 只出現一次；created_at／updated_at 取 order_item，2026-11-01 使用者決定），多帶 使用者編號 ＝ orders.user_id、
 -- 不帶 orders 的地址電話（#47）。下架行程的項目也出現（#41）。
 CREATE VIEW "user_order_item" AS
 SELECT
@@ -730,7 +730,7 @@ SELECT
     t.preference1, t.preference2, t.preference3, t.notice, t.description, t.cover_image,
     t.img1, t.img1_desc, t.img2, t.img2_desc, t.img3, t.img3_desc,
     t.img4, t.img4_desc, t.img5, t.img5_desc, t.img6, t.img6_desc,
-    t.created_at, t.updated_at
+    oi.created_at, oi.updated_at
 FROM order_item oi
 JOIN orders o ON o.order_id = oi.order_id
 JOIN tour t ON t.tour_id = oi.tour_id
