@@ -13,7 +13,7 @@ const baseSchema = Joi.object({
     'any.required': '「使用者」為必填欄位',
   }),
 
-  email: Joi.string().email().messages({
+  email: Joi.string().email().lowercase().messages({
     'string.email': 'Email不符合規則，需符合 Email 格式。',
     'any.required': '「Email」為必填欄位',
   }),

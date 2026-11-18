@@ -58,8 +58,16 @@ async function post_user_SignUp(req, res, next) {
       },
     });
   } catch (error) {
-    // [HTTP 500] 伺服器異常
     if (client) await client.query('ROLLBACK');
+    // [HTTP 409] 同時註冊同一個 email，撞到 user_email_lower_key
+    if (error.code === '23505' && error.constraint === 'user_email_lower_key') {
+      return resStatus({
+        res: res,
+        status: 409,
+        message: 'Email已被使用',
+      });
+    }
+    // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
   } finally {
@@ -77,7 +85,7 @@ async function post_user_LoginEmail(req, res, next) {
     // 更新數據
     await client.query('BEGIN');
 
-    const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+    const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
     const user = emailData.rows[0];
     // 登入成功後，清除鎖住功能
     await pool.query(
@@ -250,7 +258,7 @@ async function post_user_forgetPW(req, res, next) {
 
   try {
     // 簽發 JWT（依你專案調整）
-    const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+    const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
     const user = emailData.rows[0];
 
     const payload = { id: user.user_id };

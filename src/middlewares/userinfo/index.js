@@ -40,7 +40,7 @@ async function postuserSignup(req, res, next) {
 
   // [HTTP 409] 資料重複異常
   const { email } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   if (emailData.rows.length > 0) {
     resStatus({
       res: res,
@@ -75,7 +75,7 @@ async function postuserLoginEmail(req, res, next) {
 
   // [HTTP 404] 帳號密碼不存在
   const { email, password } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   const user = emailData.rows[0];
   if (!user) {
     resStatus({
@@ -216,7 +216,7 @@ async function postuserforgetPW(req, res, next) {
 
   // [HTTP 404] 帳號密碼不存在
   const { email } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   const user = emailData.rows[0];
   if (!user) {
     resStatus({
