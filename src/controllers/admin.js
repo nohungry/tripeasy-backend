@@ -53,7 +53,9 @@ async function get_userDetailinfo(req, res, next) {
 // [PATCH] 44 : 管理者修改註冊用戶權限
 async function patch_userPurview(req, res, next) {
   try {
-    const { user_ids, role } = req.body;
+    const { user_ids } = req.body;
+    // DB 與 authorizeRoles 使用 'admin' / 'User'；API 接受小寫 'user'，寫入前正規化
+    const role = req.body.role === 'user' ? 'User' : req.body.role;
 
     const updatePromises = user_ids.map((user_id) =>
       pool.query('UPDATE public."user" SET role = $1 WHERE user_id = $2', [role, user_id])
