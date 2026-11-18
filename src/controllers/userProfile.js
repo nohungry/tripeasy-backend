@@ -84,6 +84,8 @@ async function patch_user_ProfileData(req, res, next) {
     if (client) await client.query('ROLLBACK');
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    if (client) client.release();
   }
 }
 
