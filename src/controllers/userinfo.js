@@ -1,10 +1,10 @@
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const mailer = require('../utils/mailer');
 const svgCaptcha = require('svg-captcha');
 
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
+const { signLoginToken, signResetToken } = require('../utils/authToken');
 
 // [POST] 編號 01 : 使用者註冊、個人偏好設定
 async function post_user_SignUp(req, res, next) {
@@ -101,10 +101,7 @@ async function post_user_LoginEmail(req, res, next) {
     await client.query('COMMIT');
 
     // 簽發 JWT（依你專案調整）
-    const payload = { id: user.user_id, role: user.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_DAY || '7d',
-    });
+    const token = signLoginToken(user);
 
     // [HTTP 200] 呈現資料
     resStatus({
@@ -213,10 +210,7 @@ async function post_user_LoginGoogle(req, res, next) {
     const level = levelResult.rows[0];
 
     // 5. 簽發 JWT 權杖並回傳成功的響應
-    const payload = { id: user.user_id, role: user.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_DAY || '7d',
-    });
+    const token = signLoginToken(user);
 
     return resStatus({
       res: res,
@@ -261,11 +255,10 @@ async function post_user_forgetPW(req, res, next) {
     const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
     const user = emailData.rows[0];
 
-    const payload = { id: user.user_id };
-    const reset_token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const reset_token = signResetToken(user);
 
     // 📬 發送 Email
-    const resetUrl = `${process.env.FRONTEND_PATH}/admin/resetpw?token=${reset_token}`;
+    const resetUrl = `${process.env.FRONTEND_PATH}/#/admin/resetpw?token=${reset_token}`;
 
     await mailer.send({
       to: email,

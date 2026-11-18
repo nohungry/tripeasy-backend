@@ -1,7 +1,7 @@
 const axios = require('axios');
 const qs = require('qs');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const { verifyResetToken } = require('../../utils/authToken');
 const resStatus = require('../../utils/resStatus.js');
 const { pool } = require('../../config/database');
 
@@ -264,8 +264,10 @@ async function patchuserresetPW(req, res, next) {
 
   // [HTTP 400] Token 資料錯誤、無效或過期
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    decoded = await verifyResetToken(token);
   } catch (err) {
+    // 非 token 錯誤（例如 DB 異常）交給錯誤處理，不當成 400
+    if (!err.reason) return next(err);
     resStatus({
       res: res,
       status: 400,
