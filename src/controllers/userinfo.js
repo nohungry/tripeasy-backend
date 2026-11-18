@@ -255,6 +255,14 @@ async function post_user_LoginGoogle(req, res, next) {
   } catch (error) {
     // 如果過程中發生任何錯誤，則回滾資料庫交易
     if (client) await client.query('ROLLBACK');
+    // [HTTP 409] 同一個 email 同時首次 Google 登入，撞到 user_email_lower_key
+    if (error.code === '23505' && error.constraint === 'user_email_lower_key') {
+      return resStatus({
+        res: res,
+        status: 409,
+        message: 'Email已被使用',
+      });
+    }
     console.error('❌ Google 登入控制器錯誤:', error);
     next(error); // 將錯誤傳遞給 Express 的錯誤處理中介軟體
   } finally {
