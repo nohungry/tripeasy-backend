@@ -170,7 +170,7 @@ async function post_user_LoginGoogle(req, res, next) {
         // RETURNING * 帶回更新後的 password（NULL），signLoginToken 以它計算 pwv
         const updated = await client.query(
           `UPDATE public."user"
-           SET password = NULL, avatar_url = $1, login_method = 2, updated_at = NOW()
+           SET password = NULL, avatar_url = COALESCE(avatar_url, $1), login_method = 2, updated_at = NOW()
            WHERE user_id = $2 RETURNING *`,
           [picture, user.user_id]
         );
@@ -184,7 +184,7 @@ async function post_user_LoginGoogle(req, res, next) {
         // 已綁定：只更新頭像、登入方式與 provider_id，密碼不動
         const updated = await client.query(
           `UPDATE public."user"
-           SET avatar_url = $1, login_method = 2, updated_at = NOW()
+           SET avatar_url = COALESCE(avatar_url, $1), login_method = 2, updated_at = NOW()
            WHERE user_id = $2 RETURNING *`,
           [picture, user.user_id]
         );
