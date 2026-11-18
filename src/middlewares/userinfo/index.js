@@ -318,7 +318,9 @@ async function patchuserresetPW(req, res, next) {
     return;
   }
 
-  res.clearCookie('captcha', cookieOptions());
+  // 清除時不能帶 maxAge（Express 會改送 Max-Age=300 的空 cookie），其餘屬性要與設定時一致
+  const { maxAge, ...clearOptions } = cookieOptions();
+  res.clearCookie('captcha', clearOptions);
   req.body = value; // 保留乾淨資料
   next();
 }

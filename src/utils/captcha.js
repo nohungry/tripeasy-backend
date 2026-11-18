@@ -5,8 +5,11 @@ const TTL_MS = 5 * 60 * 1000;
 // cookie 值格式：'<expiresMs>.<hex64>'
 // 簽章 = HMAC-SHA256(key = CAPTCHA_SECRET, msg = `${answer.toLowerCase()}.${expiresMs}`)
 function sign(answer, expiresMs) {
+  const secret = process.env.CAPTCHA_SECRET;
+  // fail closed：金鑰缺少或為空字串時不簽章，避免任何人都能用空金鑰偽造
+  if (!secret) throw new Error('CAPTCHA_SECRET 未設定');
   return crypto
-    .createHmac('sha256', process.env.CAPTCHA_SECRET)
+    .createHmac('sha256', secret)
     .update(`${String(answer).toLowerCase()}.${expiresMs}`)
     .digest('hex');
 }
