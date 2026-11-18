@@ -58,7 +58,7 @@ async function verifyToken(token, typ) {
   }
 
   // role 以 DB 為準，不信任 token 內的值（降級後舊 token 不再有舊權限）
-  return { ...decoded, role: result.rows[0].role };
+  return { ...decoded, role: result.rows[0].role, password: result.rows[0].password };
 }
 
 async function verifyLoginToken(token) {
@@ -68,7 +68,8 @@ async function verifyLoginToken(token) {
 
 async function verifyResetToken(token) {
   const decoded = await verifyToken(token, 'reset');
-  return { id: decoded.id };
+  // password 為驗證當下讀到的值，供呼叫端做 compare-and-swap（讓同一個 reset token 只能用一次）
+  return { id: decoded.id, password: decoded.password };
 }
 
 module.exports = {

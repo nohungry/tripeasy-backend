@@ -302,17 +302,18 @@ async function patchuserresetPW(req, res, next) {
   const user = decoded;
   const salt = await bcrypt.genSalt(10);
   const databasePassword = await bcrypt.hash(new_password, salt);
-  const userData = await pool.query('UPDATE public."user" SET password = $1 WHERE user_id = $2', [
-    databasePassword,
-    user.id,
-  ]);
+  // 以驗證 token 當下讀到的舊密碼做條件（NULL 也能比對），併發送出同一 token 時只有一個能更新成功
+  const userData = await pool.query(
+    'UPDATE public."user" SET password = $1 WHERE user_id = $2 AND password IS NOT DISTINCT FROM $3',
+    [databasePassword, user.id, user.password]
+  );
 
-  // [HTTP 400] 密碼更新失敗
+  // [HTTP 400] Token 已被使用（密碼已被別的請求更新）
   if (userData.rowCount === 0) {
     resStatus({
       res: res,
       status: 400,
-      message: '密碼更新失敗',
+      message: 'Token 資料錯誤、無效或過期',
     });
     return;
   }
