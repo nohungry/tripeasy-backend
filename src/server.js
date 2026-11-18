@@ -46,7 +46,7 @@ app.use(
         callback(new Error('不允許的來源'));
       }
     },
-    credentials: true,
+    credentials: process.env.CORS_CREDENTIALS !== 'false',
   })
 );
 

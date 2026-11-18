@@ -82,7 +82,7 @@ async function patch_userOrderPreview(req, res, next) {
   }
 
   // [HTTP 404] 查無此使用者
-  const userRepo = await pool.query('SELECT * FROM public."user" WHERE email = $1', [
+  const userRepo = await pool.query('SELECT * FROM public."user" WHERE lower(email) = lower($1)', [
     req.body.user.email,
   ]);
   if (userRepo.rowCount === 0) {

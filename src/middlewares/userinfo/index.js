@@ -1,7 +1,8 @@
 const axios = require('axios');
 const qs = require('qs');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const { verifyResetToken } = require('../../utils/authToken');
+const { verifyCaptcha, cookieOptions } = require('../../utils/captcha');
 const resStatus = require('../../utils/resStatus.js');
 const { pool } = require('../../config/database');
 
@@ -40,7 +41,7 @@ async function postuserSignup(req, res, next) {
 
   // [HTTP 409] 資料重複異常
   const { email } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   if (emailData.rows.length > 0) {
     resStatus({
       res: res,
@@ -75,7 +76,7 @@ async function postuserLoginEmail(req, res, next) {
 
   // [HTTP 404] 帳號密碼不存在
   const { email, password } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   const user = emailData.rows[0];
   if (!user) {
     resStatus({
@@ -96,6 +97,16 @@ async function postuserLoginEmail(req, res, next) {
       res: res,
       status: 403,
       message: `帳號鎖定中，請於 ${waitMinutes} 分鐘後再試`,
+    });
+    return;
+  }
+
+  // [HTTP 401] 沒有密碼的帳號（Google 註冊）：不累計錯誤次數
+  if (user.password === null) {
+    resStatus({
+      res: res,
+      status: 401,
+      message: '此帳號使用 Google 登入，請改用 Google 登入，或透過忘記密碼設定密碼。',
     });
     return;
   }
@@ -175,9 +186,17 @@ async function postuserLoginGoogle(req, res, next) {
       });
     }
 
+    // [HTTP 400] Google 信箱未驗證：不可信任這個 email（會被用來綁定既有會員）
+    if (googleUser.email_verified !== true) {
+      return resStatus({
+        res: res,
+        status: 400,
+        message: 'Google 帳號的信箱尚未驗證，無法登入。',
+      });
+    }
+
     req.user = {
       googleUser,
-      access_token,
     };
     next();
 
@@ -216,7 +235,7 @@ async function postuserforgetPW(req, res, next) {
 
   // [HTTP 404] 帳號密碼不存在
   const { email } = value;
-  const emailData = await pool.query('SELECT * FROM public."user" where email = $1', [email]);
+  const emailData = await pool.query('SELECT * FROM public."user" where lower(email) = lower($1)', [email]);
   const user = emailData.rows[0];
   if (!user) {
     resStatus({
@@ -254,8 +273,10 @@ async function patchuserresetPW(req, res, next) {
 
   // [HTTP 400] Token 資料錯誤、無效或過期
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    decoded = await verifyResetToken(token);
   } catch (err) {
+    // 非 token 錯誤（例如 DB 異常）交給錯誤處理，不當成 400
+    if (!err.reason) return next(err);
     resStatus({
       res: res,
       status: 400,
@@ -264,9 +285,10 @@ async function patchuserresetPW(req, res, next) {
     return;
   }
 
+  const captchaResult = verifyCaptcha(req.cookies.captcha, input);
+
   // [HTTP 400] 驗證碼已過期
-  const stored = req.cookies.captcha;
-  if (!stored) {
+  if (captchaResult === 'expired') {
     resStatus({
       res: res,
       status: 400,
@@ -276,7 +298,7 @@ async function patchuserresetPW(req, res, next) {
   }
 
   // [HTTP 400] 驗證碼錯誤
-  if (stored.toLowerCase() !== input.toLowerCase()) {
+  if (captchaResult !== 'ok') {
     resStatus({
       res: res,
       status: 400,
@@ -288,21 +310,25 @@ async function patchuserresetPW(req, res, next) {
   const user = decoded;
   const salt = await bcrypt.genSalt(10);
   const databasePassword = await bcrypt.hash(new_password, salt);
-  const userData = await pool.query('UPDATE public."user" SET password = $1 WHERE user_id = $2', [
-    databasePassword,
-    user.id,
-  ]);
+  // 以驗證 token 當下讀到的舊密碼做條件（NULL 也能比對），併發送出同一 token 時只有一個能更新成功
+  const userData = await pool.query(
+    'UPDATE public."user" SET password = $1 WHERE user_id = $2 AND password IS NOT DISTINCT FROM $3',
+    [databasePassword, user.id, user.password]
+  );
 
-  // [HTTP 400] 密碼更新失敗
+  // [HTTP 400] Token 已被使用（密碼已被別的請求更新）
   if (userData.rowCount === 0) {
     resStatus({
       res: res,
       status: 400,
-      message: '密碼更新失敗',
+      message: 'Token 資料錯誤、無效或過期',
     });
     return;
   }
 
+  // 清除時不能帶 maxAge（Express 會改送 Max-Age=300 的空 cookie），其餘屬性要與設定時一致
+  const { maxAge, ...clearOptions } = cookieOptions();
+  res.clearCookie('captcha', clearOptions);
   req.body = value; // 保留乾淨資料
   next();
 }
@@ -328,8 +354,18 @@ async function patchuserresetprofilePW(req, res, next) {
   const { password, new_password } = value;
   const user = await pool.query('SELECT * FROM public."user" where user_id = $1', [req.user.id]);
 
-  // [HTTP 400] 舊密碼輸入錯誤
+  // [HTTP 400] 沒有密碼的帳號
   const userData = user.rows[0];
+  if (userData.password === null) {
+    resStatus({
+      res: res,
+      status: 400,
+      message: '此帳號尚未設定密碼，請透過忘記密碼設定。',
+    });
+    return;
+  }
+
+  // [HTTP 400] 舊密碼輸入錯誤
   const isMatch = await bcrypt.compare(password, userData.password);
   if (!isMatch) {
     resStatus({
