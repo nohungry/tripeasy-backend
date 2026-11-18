@@ -23,7 +23,7 @@ router.get(
 router.patch(
   '/members/roles',
   auth,
-  // authRole('admin'),
+  authRole('admin'),
   mw.patchUserPurview,
   controller.patch_userPurview
 );

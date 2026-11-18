@@ -293,8 +293,6 @@ async function post_Product(req, res, next) {
 /**/
 // [GET] 47 : 管理者查看刊登的旅遊項目
 async function get_tourSearch(req, res, next) {
-  const { tour_ids } = req.user;
-
   // [400] 欄位未填寫正確
   const { error: Status } = product_Validator.getTourSearch.validate(req.query, {
     abortEarly: false,
@@ -308,19 +306,6 @@ async function get_tourSearch(req, res, next) {
     });
     return;
   }
-  // [404] 查無此項目
-  const userResult = tour_ids.map((tour_id) => pool.query(
-    'SELECT * FROM public."tour" WHERE tour_id = $1', 
-    [tour_id]));
-    if (userResult.rows.length === 0) {
-      resStatus({
-        res: res,
-        status: 404,
-        message: '查無此項目',
-      });
-      return;
-    }
-  
   next();
 }
 
