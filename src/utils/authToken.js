@@ -48,7 +48,7 @@ async function verifyToken(token, typ) {
     throw tokenError('invalid');
   }
 
-  const result = await pool.query('SELECT password FROM "user" WHERE user_id = $1', [decoded.id]);
+  const result = await pool.query('SELECT password, role FROM "user" WHERE user_id = $1', [decoded.id]);
   if (result.rows.length === 0) throw tokenError('invalid');
 
   const expected = Buffer.from(passwordFingerprint(result.rows[0].password));
@@ -57,7 +57,8 @@ async function verifyToken(token, typ) {
     throw tokenError('invalid');
   }
 
-  return decoded;
+  // role 以 DB 為準，不信任 token 內的值（降級後舊 token 不再有舊權限）
+  return { ...decoded, role: result.rows[0].role };
 }
 
 async function verifyLoginToken(token) {
