@@ -2,6 +2,7 @@ const axios = require('axios');
 const qs = require('qs');
 const bcrypt = require('bcrypt');
 const { verifyResetToken } = require('../../utils/authToken');
+const { verifyCaptcha, cookieOptions } = require('../../utils/captcha');
 const resStatus = require('../../utils/resStatus.js');
 const { pool } = require('../../config/database');
 
@@ -276,9 +277,10 @@ async function patchuserresetPW(req, res, next) {
     return;
   }
 
+  const captchaResult = verifyCaptcha(req.cookies.captcha, input);
+
   // [HTTP 400] 驗證碼已過期
-  const stored = req.cookies.captcha;
-  if (!stored) {
+  if (captchaResult === 'expired') {
     resStatus({
       res: res,
       status: 400,
@@ -288,7 +290,7 @@ async function patchuserresetPW(req, res, next) {
   }
 
   // [HTTP 400] 驗證碼錯誤
-  if (stored.toLowerCase() !== input.toLowerCase()) {
+  if (captchaResult !== 'ok') {
     resStatus({
       res: res,
       status: 400,
@@ -315,6 +317,7 @@ async function patchuserresetPW(req, res, next) {
     return;
   }
 
+  res.clearCookie('captcha', cookieOptions());
   req.body = value; // 保留乾淨資料
   next();
 }

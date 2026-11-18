@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const mailer = require('../utils/mailer');
 const svgCaptcha = require('svg-captcha');
+const { signCaptcha, cookieOptions } = require('../utils/captcha');
 
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
@@ -310,13 +311,8 @@ async function get_user_captcha(req, res, next) {
       background: '#eee',
     });
 
-    // 將驗證碼存在 cookie，5 分鐘內有效
-    res.cookie('captcha', captcha.text, {
-      maxAge: 5 * 60 * 1000,
-      httpOnly: true,
-      secure: true, // ✅ 要設 true！因為 Render 是 HTTPS
-      sameSite: 'None', // ✅ 跨網域一定要設成 None
-    });
+    // 將驗證碼的 HMAC 簽章存在 cookie，5 分鐘內有效
+    res.cookie('captcha', signCaptcha(captcha.text), cookieOptions());
 
     res.type('svg');
     res.send(captcha.data);
