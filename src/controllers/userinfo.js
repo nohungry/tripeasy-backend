@@ -138,8 +138,10 @@ async function post_user_LoginEmail(req, res, next) {
 // [POST] 編號 03 : 使用者登入 - Google 登入
 async function post_user_LoginGoogle(req, res, next) {
   // 從中介軟體取得已驗證的 Google 使用者資訊和權杖
-  const { googleUser, access_token } = req.user;
-  const { email, name, picture } = googleUser;
+  const { googleUser } = req.user;
+  const { name, picture } = googleUser;
+  // email 一律轉小寫，與 lower(email) 唯一索引一致
+  const email = String(googleUser.email).toLowerCase();
   // Google 的使用者唯一 ID，用來存儲在 socialLogin 表中
   const provider_id = googleUser.sub;
 
@@ -148,41 +150,57 @@ async function post_user_LoginGoogle(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN'); // 開始資料庫交易
 
-    // 1. 檢查使用者是否已存在於資料庫中
-    const { rows: existingUsers } = await client.query('SELECT * FROM public."user" WHERE email = $1', [email]);
+    // 1. 檢查使用者是否已存在於資料庫中（鎖列，避免與同一帳號的其他交易交錯）
+    const { rows: existingUsers } = await client.query(
+      'SELECT * FROM public."user" WHERE lower(email) = lower($1) FOR UPDATE',
+      [email]
+    );
     let user = existingUsers[0];
-    
+
     // 2. 根據使用者是否存在，執行不同邏輯
     if (user) {
-      // 2a. 如果使用者已存在（例如用 Email 註冊過）
-      // 更新其頭像和登入方式，並確保 socialLogin 紀錄存在
-      const updatedUserResult = await client.query(
-        `UPDATE public."user" 
-         SET avatar_url = $1, login_method = 2, updated_at = NOW() 
-         WHERE user_id = $2 RETURNING *`,
-        [picture, user.user_id]
-      );
-      user = updatedUserResult.rows[0];
-
-      // 使用 ON CONFLICT 語法來安全地插入或更新 socialLogin 紀錄
-      // 這能處理使用者第一次用 Google 登入，或更新已存在的 Google 登入權杖
-      await client.query(
-        `INSERT INTO public."socialLogin" (user_id, provider_method, provider_id, provider_token) 
-         VALUES ($1, 'google', $2, $3) 
-         ON CONFLICT (user_id, provider_method) DO UPDATE SET provider_id = $2, provider_token = $3, updated_at = NOW()`,
-        [user.user_id, provider_id, access_token]
+      // 2a. 既有會員：是否已綁定過 Google
+      const { rows: bound } = await client.query(
+        `SELECT 1 FROM public."socialLogin" WHERE user_id = $1 AND provider_method = 'google'`,
+        [user.user_id]
       );
 
+      if (bound.length === 0) {
+        // 首次綁定：清掉密碼（防預先劫持：先用受害者 email 註冊的人，舊密碼與舊 token 都失效）
+        // RETURNING * 帶回更新後的 password（NULL），signLoginToken 以它計算 pwv
+        const updated = await client.query(
+          `UPDATE public."user"
+           SET password = NULL, avatar_url = $1, login_method = 2, updated_at = NOW()
+           WHERE user_id = $2 RETURNING *`,
+          [picture, user.user_id]
+        );
+        user = updated.rows[0];
+        await client.query(
+          `INSERT INTO public."socialLogin" (user_id, provider_method, provider_id, provider_token)
+           VALUES ($1, 'google', $2, NULL)`,
+          [user.user_id, provider_id]
+        );
+      } else {
+        // 已綁定：只更新頭像、登入方式與 provider_id，密碼不動
+        const updated = await client.query(
+          `UPDATE public."user"
+           SET avatar_url = $1, login_method = 2, updated_at = NOW()
+           WHERE user_id = $2 RETURNING *`,
+          [picture, user.user_id]
+        );
+        user = updated.rows[0];
+        await client.query(
+          `UPDATE public."socialLogin"
+           SET provider_id = $1, provider_token = NULL, updated_at = NOW()
+           WHERE user_id = $2 AND provider_method = 'google'`,
+          [provider_id, user.user_id]
+        );
+      }
     } else {
-      // 2b. 如果使用者不存在，執行完整的全新註冊流程
-      const salt = await bcrypt.genSalt(10);
-      // 為第三方登入的用戶設定一個高強度的預設密碼
-      const databasePassword = await bcrypt.hash(process.env.DEFAULT_OAUTH_PASSWORD || 'DefaultPassword123!', salt); 
-
-      // 插入新使用者，並給予預設的偏好設定 (例如 1, 2, 3)
+      // 2b. 如果使用者不存在，執行完整的全新註冊流程；Google 會員沒有密碼（NULL）
       const newUserResult = await client.query(
-        'INSERT INTO public."user" (name, email, role, password, avatar_url, login_method, preference1, preference2, preference3) VALUES ($1, $2, $3, $4, $5, 2, 1, 2, 3) RETURNING *',
-        [name, email, 'User', databasePassword, picture]
+        'INSERT INTO public."user" (name, email, role, password, avatar_url, login_method, preference1, preference2, preference3) VALUES ($1, $2, $3, NULL, $4, 2, 1, 2, 3) RETURNING *',
+        [name, email, 'User', picture]
       );
       user = newUserResult.rows[0];
 
@@ -196,11 +214,11 @@ async function post_user_LoginGoogle(req, res, next) {
         [user.user_id, '新增', 0]
       );
       await client.query(
-        'INSERT INTO public."socialLogin" (user_id, provider_method, provider_id, provider_token) VALUES ($1, $2, $3, $4)',
-        [user.user_id, 'google', provider_id, access_token]
+        `INSERT INTO public."socialLogin" (user_id, provider_method, provider_id, provider_token) VALUES ($1, 'google', $2, NULL)`,
+        [user.user_id, provider_id]
       );
     }
-    
+
     // 3. 提交資料庫交易
     await client.query('COMMIT');
 

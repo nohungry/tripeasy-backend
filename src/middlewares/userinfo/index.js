@@ -186,9 +186,17 @@ async function postuserLoginGoogle(req, res, next) {
       });
     }
 
+    // [HTTP 400] Google 信箱未驗證：不可信任這個 email（會被用來綁定既有會員）
+    if (googleUser.email_verified !== true) {
+      return resStatus({
+        res: res,
+        status: 400,
+        message: 'Google 帳號的信箱尚未驗證，無法登入。',
+      });
+    }
+
     req.user = {
       googleUser,
-      access_token,
     };
     next();
 
