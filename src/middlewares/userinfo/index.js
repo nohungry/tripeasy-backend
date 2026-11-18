@@ -100,6 +100,16 @@ async function postuserLoginEmail(req, res, next) {
     return;
   }
 
+  // [HTTP 401] 沒有密碼的帳號（Google 註冊）：不累計錯誤次數
+  if (user.password === null) {
+    resStatus({
+      res: res,
+      status: 401,
+      message: '此帳號使用 Google 登入，請改用 Google 登入，或透過忘記密碼設定密碼。',
+    });
+    return;
+  }
+
   // [HTTP 401] 帳號密碼輸入錯誤
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) {
@@ -328,8 +338,18 @@ async function patchuserresetprofilePW(req, res, next) {
   const { password, new_password } = value;
   const user = await pool.query('SELECT * FROM public."user" where user_id = $1', [req.user.id]);
 
-  // [HTTP 400] 舊密碼輸入錯誤
+  // [HTTP 400] 沒有密碼的帳號
   const userData = user.rows[0];
+  if (userData.password === null) {
+    resStatus({
+      res: res,
+      status: 400,
+      message: '此帳號尚未設定密碼，請透過忘記密碼設定。',
+    });
+    return;
+  }
+
+  // [HTTP 400] 舊密碼輸入錯誤
   const isMatch = await bcrypt.compare(password, userData.password);
   if (!isMatch) {
     resStatus({

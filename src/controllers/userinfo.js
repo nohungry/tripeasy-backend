@@ -117,7 +117,7 @@ async function post_user_LoginEmail(req, res, next) {
           id: user.user_id,
           name: user.name,
           email: user.email,
-          avatar_url: user.picture,
+          avatar_url: user.avatar_url,
         },
         level: {
           level: level.level,
@@ -356,7 +356,7 @@ async function get_user_loginStatus(req, res, next) {
           id: user.rows[0].user_id,
           name: user.rows[0].name,
           email: user.rows[0].email,
-          avatar_url: user.rows[0].picture,
+          avatar_url: user.rows[0].avatar_url,
         },
         level: {
           level: level.rows[0].level,
