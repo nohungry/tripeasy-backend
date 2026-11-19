@@ -182,6 +182,10 @@ async function get_tourDetails(req, res, next) {
       [tour_id]
     );
 
+    if (tourRepo.rowCount === 0) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
+
     const type = tourRepo.rows[0]?.type;
     const item = tourRepo.rows[0]?.item;
 
@@ -201,6 +205,10 @@ async function get_tourDetails(req, res, next) {
     // 組 where 條件
     sql = `SELECT * FROM ${detailTable}($2) WHERE 旅遊編號 = $1`;
     const tourDetailsRepo = await pool.query(sql, params);
+
+    if (tourDetailsRepo.rowCount === 0) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
 
     const reverseMap = Object.fromEntries(
       Object.entries(preferenceMap).map(([label, id]) => [id, label])
@@ -260,12 +268,16 @@ async function get_tourDetails(req, res, next) {
                 description: tourDetailsRepo.rows[0].官網介紹,
                 web_url: tourDetailsRepo.rows[0]['官網 url'],
               },
-              menu: tourDetailsRepo.rows.map((row) => ({
+              menu: tourDetailsRepo.rows
+                .filter((row) => row.菜單名稱 !== null)
+                .map((row) => ({
                 name: row.菜單名稱,
                 description: row.菜單描述,
                 price: row.菜單價錢,
               })),
-              opening: tourDetailsRepo.rows.map((row) => ({
+              opening: tourDetailsRepo.rows
+                .filter((row) => row.營業星期 !== null)
+                .map((row) => ({
                 week: row.營業星期,
                 time: row.營業時間,
               })),
@@ -571,7 +583,7 @@ async function get_tourHiddenPlay(req, res, next) {
             level: row.旅遊等級,
             badge_icon: row['旅遊徽章 Url'],
           },
-          title: row.type,
+          title: row.title,
           content: row.content,
           url: row.share_url,
           create_date: row.created_at,
