@@ -263,7 +263,7 @@ const restaurantSchema = Joi.object({
     'any.required': '請提供「website_info」', 
     'string.empty': '「website_info」不可為空' 
   }),
-  website_url: Joi.string().uri().required().messages({ 
+  website_url: Joi.string().trim().uri().required().messages({ 
     'string.uri': '「website_url」連結格式不正確', 
     'any.required': '請提供「website_url」', 
     'string.empty': '「website_url」不可為空' 
@@ -576,7 +576,7 @@ const foodSchema = Joi.object({
     'any.required': '描述為必填欄位',
     'string.empty': '描述不得為空',
   }),
-  link_url: Joi.string().uri().required().messages({
+  link_url: Joi.string().trim().uri().required().messages({
     'string.base': '連結必須為字串',
     'string.uri': '連結必須是有效的網址',
     'any.required': '連結為必填欄位',
@@ -602,7 +602,7 @@ const roomSchema = Joi.object({
     'number.min': '可容納人數至少為 1 人',
     'any.required': '可容納人數為必填欄位',
   }),
-  image_url: Joi.string().uri().required().messages({
+  image_url: Joi.string().trim().uri().required().messages({
     'string.uri': '圖片網址格式錯誤',
     'any.required': '圖片為必填欄位',
   }),
@@ -693,7 +693,7 @@ const hiddenShareBodySchema = Joi.object({
     'string.max': '「content」不可超過 1000 字',
     'any.required': '請輸入「content」',
   }),
-  url: Joi.string().uri({ scheme: ['http', 'https'] }).max(255).optional().messages({
+  url: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(255).optional().messages({
     'string.base': URL_MESSAGE,
     'string.empty': URL_MESSAGE,
     'string.uri': URL_MESSAGE,
