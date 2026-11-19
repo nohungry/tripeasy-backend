@@ -71,7 +71,8 @@ function buildDynamicTourSQL(query) {
   }
 
   if (end_date) {
-    whereClauses.push(`"旅遊結束日期" <= $${index++}`);
+    // end_date 含當天：行程結束時間為 23:59:59 也要查得到
+    whereClauses.push(`"旅遊結束日期" < ($${index++}::date + 1)`);
     params.push(end_date);
   }
 
