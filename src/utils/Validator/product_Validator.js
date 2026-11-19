@@ -118,10 +118,10 @@ const queryschema = Joi.object({
     const end = new Date(end_date);
     const startUTC = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
     const endUTC = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-    const days = Math.floor((endUTC - startUTC) / (1000 * 60 * 60 * 24));
-    if (duration !== days) {
+    const days = Math.floor((endUTC - startUTC) / (1000 * 60 * 60 * 24)) + 1;
+    if (duration > days) {
       return helpers.message(
-        `「duration」必須等於「end_date」減「start_date」的天數差（目前應為 ${days}）`
+        `「duration」不可大於「start_date」到「end_date」涵蓋的天數（目前區間共 ${days} 天）`
       );
     }
   }
