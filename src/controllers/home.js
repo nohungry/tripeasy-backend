@@ -31,16 +31,18 @@ async function get_home_Product(req, res, next) {
       } else if (item === 'promotion') {
         tourData = await pool.query(
           `SELECT * FROM public."tour_base" 
-                                     WHERE 大分類 = $1 and 小分類 = $2 and 通知狀態 = $3 
-                                     ORDER BY 旅遊開始日期 DESC LIMIT $4 OFFSET $5;`,
+                                     WHERE 大分類 = $1 and 小分類 = $2 and 通知狀態 = $3
+                                       and 上下架狀態 = 1 and now() between 促銷開始日期 and 促銷結束日期
+                                     ORDER BY 旅遊開始日期 DESC, 旅遊編號 ASC LIMIT $4 OFFSET $5;`,
           ['tourgroup', 'travel', '促銷', limit, (page - 1) * limit]
         );
 
         if (user) {
           tourData = await pool.query(
             `SELECT * FROM public.tour_travel($1)
-                                      WHERE 大分類 = $2 and 小分類 = $3 and 通知狀態 = $4 
-                                      ORDER BY 旅遊開始日期 DESC LIMIT $5 OFFSET $6;`,
+                                      WHERE 大分類 = $2 and 小分類 = $3 and 通知狀態 = $4
+                                        and now() between 促銷開始日期 and 促銷結束日期
+                                      ORDER BY 旅遊開始日期 DESC, 旅遊編號 ASC LIMIT $5 OFFSET $6;`,
             [user.id, 'tourgroup', 'travel', '促銷', limit, (page - 1) * limit]
           );
         }

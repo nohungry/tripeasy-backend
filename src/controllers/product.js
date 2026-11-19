@@ -74,9 +74,9 @@ function buildDynamicTourSQL(query) {
     params.push(end_date);
   }
 
-  if (typeof duration === 'number') {
+  if (duration !== undefined && duration !== '') {
     whereClauses.push(`"旅遊天數" = $${index++}`);
-    params.push(duration);
+    params.push(Number(duration));
   }
 
   if (keyword) {
@@ -116,7 +116,7 @@ async function get_tourData(req, res, next) {
         SELECT * FROM public."tour_travel"($1::uuid)
       ) AS sub
       ${whereSQL}
-      ORDER BY ${sortBy} ${order}
+      ORDER BY ${sortBy} ${order}, "旅遊編號" ASC
       LIMIT $${params.length + 2} OFFSET $${params.length + 3}
     `;
 
