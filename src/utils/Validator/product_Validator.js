@@ -676,10 +676,39 @@ const reviewBodySchema = Joi.object({
   'object.unknown': '不支援的欄位「{#key}」',
 });
 
+// 分享隱藏玩法的 body（P3 spec §5.3）
+const URL_MESSAGE = '「url」必須是 http 或 https 網址';
+const hiddenShareBodySchema = Joi.object({
+  title: Joi.string().trim().min(1).max(50).required().messages({
+    'string.base': '「title」必須是文字',
+    'string.empty': '「title」不得為空白',
+    'string.min': '「title」不得為空白',
+    'string.max': '「title」不可超過 50 字',
+    'any.required': '請輸入「title」',
+  }),
+  content: Joi.string().trim().min(1).max(1000).required().messages({
+    'string.base': '「content」必須是文字',
+    'string.empty': '「content」不得為空白',
+    'string.min': '「content」不得為空白',
+    'string.max': '「content」不可超過 1000 字',
+    'any.required': '請輸入「content」',
+  }),
+  url: Joi.string().uri({ scheme: ['http', 'https'] }).max(255).optional().messages({
+    'string.base': URL_MESSAGE,
+    'string.empty': URL_MESSAGE,
+    'string.uri': URL_MESSAGE,
+    'string.uriCustomScheme': URL_MESSAGE,
+    'string.max': '「url」不可超過 255 字',
+  }),
+}).messages({
+  'object.unknown': '不支援的欄位「{#key}」',
+});
+
 module.exports = {
   // 查詢與詳情用
   tourIDSchema,
   reviewBodySchema,
+  hiddenShareBodySchema,
   queryschema,
   detailsSchema,
   reviewSchema,

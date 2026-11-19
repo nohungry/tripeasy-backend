@@ -567,9 +567,40 @@ async function post_tourReview(req, res, next) {
   }
 }
 
+// [POST] 分享隱藏玩法：400（tour_id）→ 400（body）→ 404 → 403 未購買（沒有 409）
+async function post_tourHiddenShare(req, res, next) {
+  try {
+    const { error: paramsError } = product_Validator.tourIDSchema.validate(req.params);
+    if (paramsError) {
+      return resStatus({ res, status: 400, message: paramsError.details[0].message });
+    }
+
+    const { error: bodyError, value } = product_Validator.hiddenShareBodySchema.validate(req.body);
+    if (bodyError) {
+      return resStatus({ res, status: 400, message: bodyError.details[0].message });
+    }
+    req.body = value;
+
+    const tour = await findListedTour(req.params.tour_id);
+    if (!tour) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
+
+    if (!(await hasPurchased(req.user.id, tour.tour_id))) {
+      return resStatus({ res, status: 403, message: '購買過此行程的會員才能分享隱藏玩法' });
+    }
+
+    req.tour = tour;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   get_tourEligibility,
   post_tourReview,
+  post_tourHiddenShare,
   get_tourData,
   get_tourDetail,
   get_tourReview,

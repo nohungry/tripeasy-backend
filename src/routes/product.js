@@ -33,4 +33,13 @@ router.get('/:tour_id/eligibility', auth, authRole('User'), mw.get_tourEligibili
 // [POST] 寫評論（購買過的會員）
 router.post('/:tour_id/reviews', auth, authRole('User'), mw.post_tourReview, controller.post_tourReview);
 
+// [POST] 分享隱藏玩法（購買過的會員）
+router.post(
+  '/:tour_id/hidden-shares',
+  auth,
+  authRole('User'),
+  mw.post_tourHiddenShare,
+  controller.post_tourHiddenShare
+);
+
 module.exports = router;

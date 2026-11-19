@@ -1497,9 +1497,38 @@ async function post_tourReview(req, res, next) {
   }
 }
 
+// [POST] 分享隱藏玩法（middleware 已確認購買過；不檢查重複）
+async function post_tourHiddenShare(req, res, next) {
+  const { title, content, url } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO public."hidden_play" (user_id, tour_id, title, content, share_url)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING hidden_play_id, title, content, share_url, created_at`,
+      [req.user.id, req.tour.tour_id, title, content, url ?? null]
+    );
+    const row = result.rows[0];
+    return resStatus({
+      res,
+      status: 201,
+      message: '分享成功',
+      dbdata: {
+        shares_id: row.hidden_play_id,
+        title: row.title,
+        content: row.content,
+        url: row.share_url,
+        create_date: row.created_at,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   get_tourEligibility,
   post_tourReview,
+  post_tourHiddenShare,
   get_tourData,
   get_tourDetails,
   get_tourReview,
