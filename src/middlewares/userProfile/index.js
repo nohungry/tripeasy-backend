@@ -25,19 +25,20 @@ async function patchuserprofileData(req, res, next) {
     return;
   }
 
-  // 偏好設定的 Mapping 分類
-  const { preference } = value;
-  const preferenceIds = preference.map((name) => preferenceNameToId[name]);
-  if (preferenceIds.includes(undefined)) {
-    return resStatus({
-      res: res,
-      status: 409,
-      message: '包含無效的偏好名稱',
-    });
+  // 偏好設定的 Mapping 分類（只在有給 preference 時處理）
+  if (value.preference) {
+    const preferenceIds = value.preference.map((name) => preferenceNameToId[name]);
+    if (preferenceIds.includes(undefined)) {
+      return resStatus({
+        res: res,
+        status: 409,
+        message: '包含無效的偏好名稱',
+      });
+    }
+    value.preference = preferenceIds;
   }
 
   req.body = value; // 保留乾淨資料
-  req.body.preference = preferenceIds;
   next();
 }
 

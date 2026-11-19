@@ -1354,10 +1354,11 @@ async function patch_tourStatus(req, res, next){
 
 // [DELETE] 51 : 管理者刪除旅遊項目
 async function delete_tourProduct(req, res, next) {
+  let client;
   try {
     const { tour_ids } = req.body;
 
-    const client = await pool.connect();
+    client = await pool.connect();
     for (const tour_id of tour_ids) {
 
       const tourDetail_id = await client.query(
@@ -1427,6 +1428,8 @@ async function delete_tourProduct(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    if (client) client.release();
   }
 }
 

@@ -42,8 +42,8 @@ async function get_user_ProfileData(req, res, next) {
 // [PATCH] 編號 11 : 使用者用戶資料修改
 async function patch_user_ProfileData(req, res, next) {
   const user = req.user;
-  const { name, preference } = req.body;
-  const [pref1, pref2, pref3] = preference;
+  const { name = null, preference = null } = req.body;
+  const [pref1, pref2, pref3] = preference ?? [null, null, null];
 
   let client;
   try {
@@ -52,7 +52,7 @@ async function patch_user_ProfileData(req, res, next) {
     await client.query('BEGIN');
 
     await client.query(
-      'UPDATE public."user" SET name = $1, preference1 = $2, preference2 = $3, preference3 = $4 WHERE user_id = $5',
+      'UPDATE public."user" SET name = COALESCE($1, name), preference1 = COALESCE($2, preference1), preference2 = COALESCE($3, preference2), preference3 = COALESCE($4, preference3) WHERE user_id = $5',
       [name, pref1, pref2, pref3, user.id]
     );
 
