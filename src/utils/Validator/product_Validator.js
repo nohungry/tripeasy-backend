@@ -655,9 +655,31 @@ const delete_tourProduct = Joi.object({
   })
 })
 
+// 寫評論的 body（P3 spec §5.3）
+const RATING_MESSAGE = '「rating」必須是 1 到 5 的整數';
+const reviewBodySchema = Joi.object({
+  rating: Joi.number().integer().min(1).max(5).strict().required().messages({
+    'number.base': RATING_MESSAGE,
+    'number.integer': RATING_MESSAGE,
+    'number.min': RATING_MESSAGE,
+    'number.max': RATING_MESSAGE,
+    'any.required': '請輸入「rating」',
+  }),
+  content: Joi.string().trim().min(1).max(500).required().messages({
+    'string.base': '「content」必須是文字',
+    'string.empty': '「content」不得為空白',
+    'string.min': '「content」不得為空白',
+    'string.max': '「content」不可超過 500 字',
+    'any.required': '請輸入「content」',
+  }),
+}).messages({
+  'object.unknown': '不支援的欄位「{#key}」',
+});
+
 module.exports = {
   // 查詢與詳情用
   tourIDSchema,
+  reviewBodySchema,
   queryschema,
   detailsSchema,
   reviewSchema,

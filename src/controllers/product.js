@@ -2,6 +2,7 @@ const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
 const preferenceMap = require('../utils/preferenceMap');
 const { v4: uuidv4 } = require('uuid');
+const { hasPurchased, hasReviewed } = require('../utils/purchase');
 // === 新增：Firebase 上傳輔助函數 ===
 const { uploadProductImages } = require('../utils/firebaseUpload');
 
@@ -1445,7 +1446,60 @@ async function delete_tourProduct(req, res, next) {
   }
 }
 
+// [GET] 購買資格查詢
+async function get_tourEligibility(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const tourId = req.tour.tour_id;
+    return resStatus({
+      res,
+      status: 200,
+      message: '查詢成功',
+      dbdata: {
+        can_write: await hasPurchased(userId, tourId),
+        has_reviewed: await hasReviewed(userId, tourId),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// [POST] 寫評論（middleware 已確認購買過、尚未評論）
+async function post_tourReview(req, res, next) {
+  const { rating, content } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO public."review" (user_id, tour_id, type, rating, content)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING review_id, type, rating, content, created_at`,
+      [req.user.id, req.tour.tour_id, req.tour.item, rating, content]
+    );
+    const row = result.rows[0];
+    return resStatus({
+      res,
+      status: 201,
+      message: '評論成功',
+      dbdata: {
+        review_id: row.review_id,
+        review_type: row.type,
+        rating: Number(row.rating),
+        content: row.content,
+        create_date: row.created_at,
+      },
+    });
+  } catch (error) {
+    // 併發時 middleware 的 hasReviewed 可能同時通過，最後由 DB 唯一索引擋下
+    if (error.code === '23505' && error.constraint === 'review_user_tour_key') {
+      return resStatus({ res, status: 409, message: '你已評論過此行程' });
+    }
+    next(error);
+  }
+}
+
 module.exports = {
+  get_tourEligibility,
+  post_tourReview,
   get_tourData,
   get_tourDetails,
   get_tourReview,

@@ -4,6 +4,7 @@ const multer = require('multer');
 
 const product_Validator = require('../../utils/Validator/product_Validator.js');
 const { query } = require('express');
+const { hasPurchased, hasReviewed, findListedTour } = require('../../utils/purchase');
 
 // ============= 圖片上傳相關設定 =============
 
@@ -512,7 +513,63 @@ async function delete_tourProduct(req, res, next) {
   next();
 }
 
+// [GET] 購買資格查詢：400 → 404（不做購買檢查，未購買回 200 can_write: false）
+async function get_tourEligibility(req, res, next) {
+  try {
+    const { error } = product_Validator.tourIDSchema.validate(req.params);
+    if (error) {
+      return resStatus({ res, status: 400, message: error.details[0].message });
+    }
+
+    const tour = await findListedTour(req.params.tour_id);
+    if (!tour) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
+
+    req.tour = tour;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// [POST] 寫評論：400（tour_id）→ 400（body）→ 404 → 403 未購買 → 409 已評論
+async function post_tourReview(req, res, next) {
+  try {
+    const { error: paramsError } = product_Validator.tourIDSchema.validate(req.params);
+    if (paramsError) {
+      return resStatus({ res, status: 400, message: paramsError.details[0].message });
+    }
+
+    const { error: bodyError, value } = product_Validator.reviewBodySchema.validate(req.body);
+    if (bodyError) {
+      return resStatus({ res, status: 400, message: bodyError.details[0].message });
+    }
+    req.body = value;
+
+    const tour = await findListedTour(req.params.tour_id);
+    if (!tour) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
+
+    const userId = req.user.id;
+    if (!(await hasPurchased(userId, tour.tour_id))) {
+      return resStatus({ res, status: 403, message: '購買過此行程的會員才能評論' });
+    }
+    if (await hasReviewed(userId, tour.tour_id)) {
+      return resStatus({ res, status: 409, message: '你已評論過此行程' });
+    }
+
+    req.tour = tour;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  get_tourEligibility,
+  post_tourReview,
   get_tourData,
   get_tourDetail,
   get_tourReview,

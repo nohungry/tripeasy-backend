@@ -5,6 +5,8 @@ const controller = require('../controllers/product');
 // middleware 的內容
 const mw = require('../middlewares/product/index');
 const auth_not_manda = require('../middlewares/auth_not_mandatory');
+const auth = require('../middlewares/auth');
+const authRole = require('../middlewares/authorizeRoles');
 
 // 掛在 /api/v1/user/product/search。管理者的商品路由在 routes/product_admin.js
 
@@ -24,5 +26,11 @@ router.get(
   mw.get_tourHiddenPlay,
   controller.get_tourHiddenPlay
 );
+
+// [GET] 購買資格查詢（會員）
+router.get('/:tour_id/eligibility', auth, authRole('User'), mw.get_tourEligibility, controller.get_tourEligibility);
+
+// [POST] 寫評論（購買過的會員）
+router.post('/:tour_id/reviews', auth, authRole('User'), mw.post_tourReview, controller.post_tourReview);
 
 module.exports = router;
