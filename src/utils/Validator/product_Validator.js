@@ -118,10 +118,10 @@ const queryschema = Joi.object({
     const end = new Date(end_date);
     const startUTC = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
     const endUTC = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-    const days = Math.floor((endUTC - startUTC) / (1000 * 60 * 60 * 24));
-    if (duration !== days) {
+    const days = Math.floor((endUTC - startUTC) / (1000 * 60 * 60 * 24)) + 1;
+    if (duration > days) {
       return helpers.message(
-        `「duration」必須等於「end_date」減「start_date」的天數差（目前應為 ${days}）`
+        `「duration」不可大於「start_date」到「end_date」涵蓋的天數（目前區間共 ${days} 天）`
       );
     }
   }
@@ -655,9 +655,60 @@ const delete_tourProduct = Joi.object({
   })
 })
 
+// 寫評論的 body（P3 spec §5.3）
+const RATING_MESSAGE = '「rating」必須是 1 到 5 的整數';
+const reviewBodySchema = Joi.object({
+  rating: Joi.number().integer().min(1).max(5).strict().required().messages({
+    'number.base': RATING_MESSAGE,
+    'number.integer': RATING_MESSAGE,
+    'number.min': RATING_MESSAGE,
+    'number.max': RATING_MESSAGE,
+    'any.required': '請輸入「rating」',
+  }),
+  content: Joi.string().trim().min(1).max(500).required().messages({
+    'string.base': '「content」必須是文字',
+    'string.empty': '「content」不得為空白',
+    'string.min': '「content」不得為空白',
+    'string.max': '「content」不可超過 500 字',
+    'any.required': '請輸入「content」',
+  }),
+}).messages({
+  'object.unknown': '不支援的欄位「{#key}」',
+});
+
+// 分享隱藏玩法的 body（P3 spec §5.3）
+const URL_MESSAGE = '「url」必須是 http 或 https 網址';
+const hiddenShareBodySchema = Joi.object({
+  title: Joi.string().trim().min(1).max(50).required().messages({
+    'string.base': '「title」必須是文字',
+    'string.empty': '「title」不得為空白',
+    'string.min': '「title」不得為空白',
+    'string.max': '「title」不可超過 50 字',
+    'any.required': '請輸入「title」',
+  }),
+  content: Joi.string().trim().min(1).max(1000).required().messages({
+    'string.base': '「content」必須是文字',
+    'string.empty': '「content」不得為空白',
+    'string.min': '「content」不得為空白',
+    'string.max': '「content」不可超過 1000 字',
+    'any.required': '請輸入「content」',
+  }),
+  url: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(255).optional().messages({
+    'string.base': URL_MESSAGE,
+    'string.empty': URL_MESSAGE,
+    'string.uri': URL_MESSAGE,
+    'string.uriCustomScheme': URL_MESSAGE,
+    'string.max': '「url」不可超過 255 字',
+  }),
+}).messages({
+  'object.unknown': '不支援的欄位「{#key}」',
+});
+
 module.exports = {
   // 查詢與詳情用
   tourIDSchema,
+  reviewBodySchema,
+  hiddenShareBodySchema,
   queryschema,
   detailsSchema,
   reviewSchema,

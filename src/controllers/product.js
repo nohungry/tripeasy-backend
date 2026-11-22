@@ -2,6 +2,7 @@ const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
 const preferenceMap = require('../utils/preferenceMap');
 const { v4: uuidv4 } = require('uuid');
+const { hasPurchased, hasReviewed } = require('../utils/purchase');
 // === 新增：Firebase 上傳輔助函數 ===
 const { uploadProductImages } = require('../utils/firebaseUpload');
 
@@ -70,13 +71,14 @@ function buildDynamicTourSQL(query) {
   }
 
   if (end_date) {
-    whereClauses.push(`"旅遊結束日期" <= $${index++}`);
+    // end_date 含當天：行程結束時間為 23:59:59 也要查得到
+    whereClauses.push(`"旅遊結束日期" < ($${index++}::date + 1)`);
     params.push(end_date);
   }
 
-  if (typeof duration === 'number') {
+  if (duration !== undefined && duration !== '') {
     whereClauses.push(`"旅遊天數" = $${index++}`);
-    params.push(duration);
+    params.push(Number(duration));
   }
 
   if (keyword) {
@@ -116,7 +118,7 @@ async function get_tourData(req, res, next) {
         SELECT * FROM public."tour_travel"($1::uuid)
       ) AS sub
       ${whereSQL}
-      ORDER BY ${sortBy} ${order}
+      ORDER BY ${sortBy} ${order}, "旅遊編號" ASC
       LIMIT $${params.length + 2} OFFSET $${params.length + 3}
     `;
 
@@ -182,6 +184,10 @@ async function get_tourDetails(req, res, next) {
       [tour_id]
     );
 
+    if (tourRepo.rowCount === 0) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
+
     const type = tourRepo.rows[0]?.type;
     const item = tourRepo.rows[0]?.item;
 
@@ -201,6 +207,10 @@ async function get_tourDetails(req, res, next) {
     // 組 where 條件
     sql = `SELECT * FROM ${detailTable}($2) WHERE 旅遊編號 = $1`;
     const tourDetailsRepo = await pool.query(sql, params);
+
+    if (tourDetailsRepo.rowCount === 0) {
+      return resStatus({ res, status: 404, message: '查無此旅遊項目' });
+    }
 
     const reverseMap = Object.fromEntries(
       Object.entries(preferenceMap).map(([label, id]) => [id, label])
@@ -260,12 +270,16 @@ async function get_tourDetails(req, res, next) {
                 description: tourDetailsRepo.rows[0].官網介紹,
                 web_url: tourDetailsRepo.rows[0]['官網 url'],
               },
-              menu: tourDetailsRepo.rows.map((row) => ({
+              menu: tourDetailsRepo.rows
+                .filter((row) => row.菜單名稱 !== null)
+                .map((row) => ({
                 name: row.菜單名稱,
                 description: row.菜單描述,
                 price: row.菜單價錢,
               })),
-              opening: tourDetailsRepo.rows.map((row) => ({
+              opening: tourDetailsRepo.rows
+                .filter((row) => row.營業星期 !== null)
+                .map((row) => ({
                 week: row.營業星期,
                 time: row.營業時間,
               })),
@@ -571,7 +585,7 @@ async function get_tourHiddenPlay(req, res, next) {
             level: row.旅遊等級,
             badge_icon: row['旅遊徽章 Url'],
           },
-          title: row.type,
+          title: row.title,
           content: row.content,
           url: row.share_url,
           create_date: row.created_at,
@@ -1354,10 +1368,11 @@ async function patch_tourStatus(req, res, next){
 
 // [DELETE] 51 : 管理者刪除旅遊項目
 async function delete_tourProduct(req, res, next) {
+  let client;
   try {
     const { tour_ids } = req.body;
 
-    const client = await pool.connect();
+    client = await pool.connect();
     for (const tour_id of tour_ids) {
 
       const tourDetail_id = await client.query(
@@ -1427,10 +1442,94 @@ async function delete_tourProduct(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    if (client) client.release();
+  }
+}
+
+// [GET] 購買資格查詢
+async function get_tourEligibility(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const tourId = req.tour.tour_id;
+    return resStatus({
+      res,
+      status: 200,
+      message: '查詢成功',
+      dbdata: {
+        can_write: await hasPurchased(userId, tourId),
+        has_reviewed: await hasReviewed(userId, tourId),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// [POST] 寫評論（middleware 已確認購買過、尚未評論）
+async function post_tourReview(req, res, next) {
+  const { rating, content } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO public."review" (user_id, tour_id, type, rating, content)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING review_id, type, rating, content, created_at`,
+      [req.user.id, req.tour.tour_id, req.tour.item, rating, content]
+    );
+    const row = result.rows[0];
+    return resStatus({
+      res,
+      status: 201,
+      message: '評論成功',
+      dbdata: {
+        review_id: row.review_id,
+        review_type: row.type,
+        rating: Number(row.rating),
+        content: row.content,
+        create_date: row.created_at,
+      },
+    });
+  } catch (error) {
+    // 併發時 middleware 的 hasReviewed 可能同時通過，最後由 DB 唯一索引擋下
+    if (error.code === '23505' && error.constraint === 'review_user_tour_key') {
+      return resStatus({ res, status: 409, message: '你已評論過此行程' });
+    }
+    next(error);
+  }
+}
+
+// [POST] 分享隱藏玩法（middleware 已確認購買過；不檢查重複）
+async function post_tourHiddenShare(req, res, next) {
+  const { title, content, url } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO public."hidden_play" (user_id, tour_id, title, content, share_url)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING hidden_play_id, title, content, share_url, created_at`,
+      [req.user.id, req.tour.tour_id, title, content, url ?? null]
+    );
+    const row = result.rows[0];
+    return resStatus({
+      res,
+      status: 201,
+      message: '分享成功',
+      dbdata: {
+        shares_id: row.hidden_play_id,
+        title: row.title,
+        content: row.content,
+        url: row.share_url,
+        create_date: row.created_at,
+      },
+    });
+  } catch (error) {
+    next(error);
   }
 }
 
 module.exports = {
+  get_tourEligibility,
+  post_tourReview,
+  post_tourHiddenShare,
   get_tourData,
   get_tourDetails,
   get_tourReview,
