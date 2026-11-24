@@ -152,6 +152,114 @@ async function cancelPendingOrders(client, userId, exceptOrderId = null) {
   return pending.rowCount;
 }
 
+// 試算折扣（不寫 DB）。type：'coupon' | 'point' | 'none'；couponId 或 couponCode 擇一。
+// 優惠券 discount 是折抵金額（元）；點數 1 點 = POINT_VALUE 元。
+async function evaluateDiscount(client, { userId, orderId, type, couponId, couponCode, usedPoint }) {
+  const none = { discount_amount: 0, coupon: null, used_point: 0 };
+  if (type !== 'coupon' && type !== 'point') return none;
+
+  const { promo_subtotal: promoSubtotal } = await computePayable(client, orderId);
+  let result;
+
+  if (type === 'coupon') {
+    const found = couponId
+      ? await client.query(
+          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired
+           FROM public."user_couponList" ucl WHERE ucl.user_id = $1 AND ucl.coupon_id = $2`,
+          [userId, couponId]
+        )
+      : await client.query(
+          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired
+           FROM public."user_couponList" ucl WHERE ucl.user_id = $1 AND ucl.code = $2
+           ORDER BY ucl.status DESC, ucl.expire_date DESC LIMIT 1`,
+          [userId, couponCode ?? null]
+        );
+    const coupon = found.rows[0];
+    if (!coupon) throw new TradeError(404, '查無此優惠卷');
+    if (coupon.status === 1) throw new TradeError(409, '優惠券已使用');
+    if (coupon.is_expired) throw new TradeError(409, '優惠券已過期');
+    if (coupon.status === -1 && coupon.order_id !== orderId) {
+      throw new TradeError(409, '優惠券已被其他訂單保留');
+    }
+    result = { discount_amount: Math.round(coupon.discount), coupon, used_point: 0 };
+  } else {
+    const points = Number(usedPoint ?? 0);
+    if (points % 5 !== 0) throw new TradeError(400, '旅遊積分必須是 5 的倍數');
+    const balance = await client.query(
+      `SELECT travel_point FROM public."user_level" WHERE user_id = $1 ORDER BY created_at LIMIT 1`,
+      [userId]
+    );
+    const reserved = await client.query(
+      `SELECT COALESCE(SUM(-pr.point), 0)::int AS reserved
+       FROM public."point_record" pr JOIN public."orders" o ON o.order_id = pr.order_id
+       WHERE pr.user_id = $1 AND pr.type = '減少_確認中'
+         AND o.payment_status IN (-1, 0) AND pr.order_id <> $2`,
+      [userId, orderId]
+    );
+    const available = Math.max(balance.rows[0]?.travel_point ?? 0, 0) - reserved.rows[0].reserved;
+    if (points > available) throw new TradeError(409, '超出可使用的點數');
+    result = { discount_amount: Math.round(points * POINT_VALUE), coupon: null, used_point: points };
+  }
+
+  if (result.discount_amount > 0 && promoSubtotal - result.discount_amount < 1) {
+    throw new TradeError(400, '折抵後金額至少需 1 元');
+  }
+  return result;
+}
+
+// 以新折扣取代訂單目前的保留。呼叫端必須已 lockOrder。
+// 先鎖 user_coupon／user_level 列再重新評估，擋住兩張訂單搶同一張券或同一筆點數。
+async function reserveDiscount(client, orderId, userId, evaluated) {
+  const type = evaluated.coupon ? 'coupon' : evaluated.used_point > 0 ? 'point' : 'none';
+  let current = evaluated;
+
+  if (type === 'coupon') {
+    await client.query(
+      'SELECT user_coupon_id FROM public."user_coupon" WHERE user_id = $1 AND coupon_id = $2 FOR UPDATE',
+      [userId, evaluated.coupon.coupon_id]
+    );
+    current = await evaluateDiscount(client, {
+      userId,
+      orderId,
+      type,
+      couponId: evaluated.coupon.coupon_id,
+    });
+  } else if (type === 'point') {
+    await client.query(
+      'SELECT level_id FROM public."user_level" WHERE user_id = $1 ORDER BY level_id FOR UPDATE',
+      [userId]
+    );
+    current = await evaluateDiscount(client, {
+      userId,
+      orderId,
+      type,
+      usedPoint: evaluated.used_point,
+    });
+  }
+
+  await releaseReservations(client, orderId);
+
+  if (type === 'coupon') {
+    await client.query(
+      `UPDATE public."user_coupon" SET status = -1, order_id = $1, updated_at = now()
+       WHERE user_id = $2 AND coupon_id = $3`,
+      [orderId, userId, current.coupon.coupon_id]
+    );
+  } else if (type === 'point') {
+    await client.query(
+      `INSERT INTO public."point_record" (user_id, order_id, type, point)
+       VALUES ($1, $2, '減少_確認中', $3)`,
+      [userId, orderId, -current.used_point]
+    );
+  }
+
+  const money = await computePayable(client, orderId);
+  await client.query(
+    'UPDATE public."orders" SET discount_type = $2, discount_price = $3, updated_at = now() WHERE order_id = $1',
+    [orderId, type, type === 'none' ? null : money.payable]
+  );
+}
+
 module.exports = {
   ORDER_STATUS,
   TradeError,
@@ -162,4 +270,6 @@ module.exports = {
   paymentInProgress,
   expireIfOverdue,
   cancelPendingOrders,
+  evaluateDiscount,
+  reserveDiscount,
 };

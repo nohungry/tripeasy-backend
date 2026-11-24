@@ -75,8 +75,9 @@ const postSchema = Joi.object({
       otherwise: Joi.string().allow('', null).optional(),
     }),
 
-    used_point: Joi.number().min(0).optional().messages({
+    used_point: Joi.number().integer().min(0).optional().messages({
       'number.base': '旅遊積分必須是數字',
+      'number.integer': '旅遊積分必須是整數',
       'number.min': '旅遊積分不得小於 0',
     }),
   }).optional(),
