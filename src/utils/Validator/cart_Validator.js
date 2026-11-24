@@ -1,18 +1,39 @@
 const Joi = require('joi');
+const { strictDate, strictLocalDateTime, todayInTaipei } = require('../dateRules');
 
 // ✅ 可集中管理所有支援語言
 const supportedLanguages = ['zh-TW', 'en-US'];
 
+// 出發日期（日期部分）不得早於今天（Asia/Taipei）
+function notPast(value, helpers) {
+  if (value.slice(0, 10) < todayInTaipei()) {
+    return helpers.error('date.past');
+  }
+  return value;
+}
+
+// 結束日期不得早於出發日期
+function notBeforeStart(value, helpers) {
+  const start = helpers.state.ancestors[0]?.start_date;
+  if (typeof start === 'string' && value < start.slice(0, 10)) {
+    return helpers.error('date.beforeStart');
+  }
+  return value;
+}
+
+const startDate = () =>
+  strictDate('出發日期')
+    .custom(notPast)
+    .messages({ 'date.past': '出發日期不能早於今天' });
+
+const endDate = () =>
+  strictDate('結束日期')
+    .custom(notBeforeStart)
+    .messages({ 'date.beforeStart': '結束日期不能早於出發日期' });
+
 const hotelSchema = Joi.object({
-  start_date: Joi.date().iso().required().messages({
-    'any.required': '請填寫「入住時間」',
-    'date.base': '「入住時間」必須是合法日期',
-  }),
-  end_date: Joi.date().iso().min(Joi.ref('start_date')).required().messages({
-    'any.required': '請填寫「退房時間」',
-    'date.base': '「退房時間」必須是合法日期',
-    'date.min': '退房時間不能早於入住時間',
-  }),
+  start_date: startDate(),
+  end_date: endDate(),
   room_type: Joi.string().required().messages({
     'any.required': '請選擇「房型」',
     'string.base': '「房型」必須是文字',
@@ -20,22 +41,14 @@ const hotelSchema = Joi.object({
 });
 
 const foodSchema = Joi.object({
-  start_date: Joi.date().iso().required().messages({
-    'any.required': '請填寫「預約時間」',
-    'date.base': '「預約時間」必須是合法日期',
-  }),
+  start_date: strictLocalDateTime('預約時間')
+    .custom(notPast)
+    .messages({ 'date.past': '出發日期不能早於今天' }),
 });
 
 const travelSchema = Joi.object({
-  start_date: Joi.date().iso().required().messages({
-    'any.required': '請填寫「旅程開始時間」',
-    'date.base': '「旅程開始時間」必須是合法日期',
-  }),
-  end_date: Joi.date().iso().min(Joi.ref('start_date')).required().messages({
-    'any.required': '請填寫「旅程結束時間」',
-    'date.base': '「旅程結束時間」必須是合法日期',
-    'date.min': '旅程結束時間不能早於開始時間',
-  }),
+  start_date: startDate(),
+  end_date: endDate(),
 });
 
 const baseSchema = Joi.object({

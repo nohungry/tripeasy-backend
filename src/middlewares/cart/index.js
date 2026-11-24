@@ -21,9 +21,12 @@ async function post_userCart(req, res, next) {
     return;
   }
 
-  // [HTTP 404] 查無此旅遊項目
+  // [HTTP 404] 查無此旅遊項目（不存在或未上架）
   const { tour_id } = req.params;
-  const tourRepo = await pool.query('SELECT * FROM public."tour" WHERE tour_id = $1', [tour_id]);
+  const tourRepo = await pool.query(
+    'SELECT type, item FROM public."tour" WHERE tour_id = $1 AND status = 1',
+    [tour_id]
+  );
   if (tourRepo.rowCount === 0) {
     return resStatus({
       res,
@@ -32,17 +35,12 @@ async function post_userCart(req, res, next) {
     });
   }
 
-  // [HTTP 400] 購物車內已有相同項目
-  const cartItemRepo = await pool.query(
-    'select ci.* from cart c inner join cart_item ci on c.cart_id = ci.cart_id WHERE tour_id = $1 and user_id = $2',
-    [tour_id, id]
-  );
-
-  if (cartItemRepo.rowCount > 0) {
+  // [HTTP 400] type／item 與行程不符
+  if (req.body.type !== tourRepo.rows[0].type || req.body.item !== tourRepo.rows[0].item) {
     return resStatus({
       res,
-      status: 404,
-      message: '已加至購物車，請勿重複加入，謝謝。',
+      status: 400,
+      message: '「type」與「item」的組合不合法',
     });
   }
 
@@ -134,10 +132,14 @@ async function delete_userCart(req, res, next) {
   }
 
   // [HTTP 404] 查無此購物車項目
+  const { id } = req.user;
   const { cart_item_id } = req.params;
-  const tourRepo = await pool.query('SELECT * FROM public."cart_item" WHERE cart_item_id = $1', [
-    cart_item_id,
-  ]);
+  const tourRepo = await pool.query(
+    `SELECT ci.cart_item_id FROM public."cart_item" ci
+     JOIN public."cart" c ON c.cart_id = ci.cart_id
+     WHERE ci.cart_item_id = $1 AND c.user_id = $2`,
+    [cart_item_id, id]
+  );
   if (tourRepo.rowCount === 0) {
     return resStatus({
       res,
@@ -167,10 +169,13 @@ async function patch_userCart(req, res, next) {
   }
 
   // [HTTP 404] 查無此購物車項目
+  const { id } = req.user;
   const { cart_item_id } = req.params;
   const cartItemRepo = await pool.query(
-    'SELECT * FROM public."cart_item" WHERE cart_item_id = $1',
-    [cart_item_id]
+    `SELECT ci.* FROM public."cart_item" ci
+     JOIN public."cart" c ON c.cart_id = ci.cart_id
+     WHERE ci.cart_item_id = $1 AND c.user_id = $2`,
+    [cart_item_id, id]
   );
   if (cartItemRepo.rowCount === 0) {
     return resStatus({
