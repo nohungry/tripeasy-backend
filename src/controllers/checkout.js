@@ -183,10 +183,6 @@ async function patch_user_CheckoutUserInfo(req, res, next) {
     await setOrderStatus(client, order_id, ORDER_STATUS.PENDING);
 
     const money = await computePayable(client, order_id);
-    const orderRepo = await client.query(
-      'SELECT order_id, total_price, discount_price FROM public."orders" WHERE order_id = $1',
-      [order_id]
-    );
 
     await client.query('COMMIT');
 
@@ -195,9 +191,9 @@ async function patch_user_CheckoutUserInfo(req, res, next) {
       status: 200,
       message: '資料更新成功',
       dbdata: {
-        order_id: orderRepo.rows[0].order_id,
-        total_price: orderRepo.rows[0].total_price,
-        discount_price: orderRepo.rows[0].discount_price,
+        order_id,
+        total_price: money.total_price,
+        discount_price: money.discount_type === 'none' ? null : money.payable,
         payable: money.payable,
       },
     });

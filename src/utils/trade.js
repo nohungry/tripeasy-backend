@@ -30,7 +30,8 @@ async function lockOrder(client, orderId, userId = null) {
 }
 
 // 應付金額的唯一來源：summary、preview、付款、notify 都用它
-async function computePayable(client, orderId) {
+// discountAmount 有傳時（試算）取代保留紀錄算出的折抵，其餘邏輯共用
+async function computePayable(client, orderId, { discountAmount: assumed } = {}) {
   const sums = await client.query(
     `SELECT COALESCE(SUM(total_price), 0)::float8 AS total_price,
             COALESCE(SUM(COALESCE(NULLIF(discount_price, 0), total_price)), 0)::float8 AS promo_subtotal
@@ -69,7 +70,7 @@ async function computePayable(client, orderId) {
 
   const totalPrice = Math.round(sums.rows[0].total_price);
   const promoSubtotal = Math.round(sums.rows[0].promo_subtotal);
-  const discount = Math.round(discountAmount);
+  const discount = Math.round(assumed ?? discountAmount);
   return {
     total_price: totalPrice,
     promo_subtotal: promoSubtotal,
@@ -164,21 +165,21 @@ async function evaluateDiscount(client, { userId, orderId, type, couponId, coupo
   if (type === 'coupon') {
     const found = couponId
       ? await client.query(
-          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired
+          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired, (ucl.order_id = $3::uuid) AS same_order
            FROM public."user_couponList" ucl WHERE ucl.user_id = $1 AND ucl.coupon_id = $2`,
-          [userId, couponId]
+          [userId, couponId, orderId]
         )
       : await client.query(
-          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired
+          `SELECT ucl.*, (ucl.expire_date < now()) AS is_expired, (ucl.order_id = $3::uuid) AS same_order
            FROM public."user_couponList" ucl WHERE ucl.user_id = $1 AND ucl.code = $2
            ORDER BY ucl.status DESC, ucl.expire_date DESC LIMIT 1`,
-          [userId, couponCode ?? null]
+          [userId, couponCode ?? null, orderId]
         );
     const coupon = found.rows[0];
     if (!coupon) throw new TradeError(404, '查無此優惠卷');
     if (coupon.status === 1) throw new TradeError(409, '優惠券已使用');
     if (coupon.is_expired) throw new TradeError(409, '優惠券已過期');
-    if (coupon.status === -1 && coupon.order_id !== orderId) {
+    if (coupon.status === -1 && !coupon.same_order) {
       throw new TradeError(409, '優惠券已被其他訂單保留');
     }
     result = { discount_amount: Math.round(coupon.discount), coupon, used_point: 0 };

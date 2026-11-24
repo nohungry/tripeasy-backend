@@ -11,14 +11,13 @@ const {
   evaluateDiscount,
 } = require('../utils/trade');
 
-function summaryOf(money, discountAmount) {
-  const payable = money.promo_subtotal - discountAmount;
+function summaryOf(money) {
   return {
     total_price: money.total_price,
     promo_subtotal: money.promo_subtotal,
-    discount_amount: discountAmount,
-    payable,
-    discount_price: payable,
+    discount_amount: money.discount_amount,
+    payable: money.payable,
+    discount_price: money.payable,
   };
 }
 
@@ -52,7 +51,9 @@ async function post_user_discounts(req, res, next) {
       couponCode: discount.coupon,
       usedPoint: discount.point,
     });
-    const money = await computePayable(client, order_id);
+    const money = await computePayable(client, order_id, {
+      discountAmount: evaluated.discount_amount,
+    });
 
     let discountInfo;
     if (type === 'coupon') {
@@ -84,7 +85,7 @@ async function post_user_discounts(req, res, next) {
       res,
       status: 200,
       message: '優惠成功',
-      dbdata: { discount: discountInfo, summary: summaryOf(money, evaluated.discount_amount) },
+      dbdata: { discount: discountInfo, summary: summaryOf(money) },
     });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
@@ -137,7 +138,7 @@ async function get_user_discounts(req, res, next) {
       res,
       status: 200,
       message: '查詢成功',
-      dbdata: { discount: null, summary: summaryOf(money, money.discount_amount) },
+      dbdata: { discount: null, summary: summaryOf(money) },
     });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
