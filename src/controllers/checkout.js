@@ -80,6 +80,8 @@ async function post_user_Order(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -193,6 +195,8 @@ async function patch_user_CheckoutUserInfo(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 

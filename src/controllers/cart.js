@@ -82,6 +82,8 @@ async function post_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -131,6 +133,8 @@ async function delete_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -189,6 +193,8 @@ async function patch_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
