@@ -19,7 +19,7 @@ async function post_user_Order(req, res, next) {
     await client.query('BEGIN');
 
     // 以使用者列序列化同一會員的併發建單，避免兩個分頁各自留下一張未付款訂單
-    await client.query('SELECT 1 FROM public."user" WHERE user_id = $1 FOR UPDATE', [id]);
+    await client.query('SELECT 1 FROM public."user" WHERE user_id = $1 FOR NO KEY UPDATE', [id]);
 
     const cartRepo = await client.query(
       'SELECT cart_id FROM public."cart" WHERE cart_id = $1 AND user_id = $2',
