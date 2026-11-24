@@ -20,7 +20,10 @@ async function post_userOrder(req, res, next) {
 
   // [HTTP 404] 查無此購物車項目
   const { cart_id } = req.params;
-  const cartRepo = await pool.query('SELECT * FROM public."cart" WHERE cart_id = $1', [cart_id]);
+  const cartRepo = await pool.query(
+    'SELECT * FROM public."cart" WHERE cart_id = $1 AND user_id = $2',
+    [cart_id, req.user.id]
+  );
   if (cartRepo.rowCount === 0) {
     return resStatus({
       res,
@@ -49,9 +52,10 @@ async function get_userOrderPrfile(req, res, next) {
 
   // [HTTP 404] 查無此訂單項目
   const { order_id } = req.params;
-  const orderRepo = await pool.query('SELECT * FROM public."orders" WHERE order_id = $1', [
-    order_id,
-  ]);
+  const orderRepo = await pool.query(
+    'SELECT * FROM public."orders" WHERE order_id = $1 AND user_id = $2',
+    [order_id, req.user.id]
+  );
   if (orderRepo.rowCount === 0) {
     return resStatus({
       res,
@@ -187,9 +191,10 @@ async function get_userCheckOrder(req, res, next) {
 
   // [HTTP 404] 查無此訂單項目
   const { order_id } = req.params;
-  const orderRepo = await pool.query('SELECT * FROM public."orders" WHERE order_id = $1', [
-    order_id,
-  ]);
+  const orderRepo = await pool.query(
+    'SELECT * FROM public."orders" WHERE order_id = $1 AND user_id = $2',
+    [order_id, req.user.id]
+  );
   if (orderRepo.rowCount === 0) {
     return resStatus({
       res,
