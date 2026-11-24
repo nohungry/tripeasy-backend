@@ -7,6 +7,7 @@ const {
   computePayable,
   setOrderStatus,
   expireIfOverdue,
+  paymentInProgress,
   cancelPendingOrders,
   evaluateDiscount,
   reserveDiscount,
@@ -161,6 +162,9 @@ async function patch_user_CheckoutUserInfo(req, res, next) {
     }
     if (locked.payment_status !== ORDER_STATUS.CREATED && locked.payment_status !== ORDER_STATUS.PENDING) {
       throw new TradeError(409, '訂單狀態不允許此操作');
+    }
+    if (await paymentInProgress(client, order_id)) {
+      throw new TradeError(409, '付款進行中，請稍後再試');
     }
 
     const evaluated = await evaluateDiscount(client, {

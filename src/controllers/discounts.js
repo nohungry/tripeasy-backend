@@ -7,6 +7,7 @@ const {
   computePayable,
   releaseReservations,
   expireIfOverdue,
+  paymentInProgress,
   evaluateDiscount,
 } = require('../utils/trade');
 
@@ -110,6 +111,16 @@ async function get_user_discounts(req, res, next) {
 
     const locked = await lockOrder(client, order_id, userId);
     if (!locked) throw new TradeError(404, '查無此訂單項目');
+    if (await expireIfOverdue(client, locked)) {
+      await client.query('COMMIT');
+      return resStatus({ res, status: 409, message: '訂單已逾時' });
+    }
+    if (locked.payment_status !== ORDER_STATUS.CREATED && locked.payment_status !== ORDER_STATUS.PENDING) {
+      throw new TradeError(409, '訂單狀態不允許此操作');
+    }
+    if (await paymentInProgress(client, order_id)) {
+      throw new TradeError(409, '付款進行中，請稍後再試');
+    }
 
     await releaseReservations(client, order_id);
     await client.query(
