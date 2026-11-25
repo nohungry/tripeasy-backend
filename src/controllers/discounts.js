@@ -70,7 +70,7 @@ async function post_user_discounts(req, res, next) {
         `SELECT travel_point FROM public."user_level" WHERE user_id = $1 ORDER BY created_at LIMIT 1`,
         [userId]
       );
-      const userPoint = balance.rows[0]?.travel_point ?? 0;
+      const userPoint = Math.max(balance.rows[0]?.travel_point ?? 0, 0); // 負餘額視為 0 點可用（Q2）
       discountInfo = {
         type: 'point',
         user_point: userPoint,
