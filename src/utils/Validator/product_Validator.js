@@ -56,6 +56,7 @@ const queryschema = Joi.object({
   end_date: strictDate('結束日期').optional(),
   keyword: Joi.string().optional().messages({
     'string.base': '「關鍵字」必須是字串',
+    'string.empty': '「關鍵字」不可為空',
   }),
   duration: Joi.number().integer().optional().messages({
     'number.base': '「天數」必須是數字',

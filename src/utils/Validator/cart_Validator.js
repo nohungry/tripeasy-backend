@@ -31,32 +31,49 @@ const endDate = () =>
     .custom(notBeforeStart)
     .messages({ 'date.beforeStart': '結束日期不能早於出發日期' });
 
+const optionsMessages = {
+  'object.base': '「選項」必須是物件',
+  'object.unknown': '「選項」含有不支援的欄位',
+};
+
 const hotelSchema = Joi.object({
   start_date: startDate(),
   end_date: endDate(),
   room_type: Joi.string().required().messages({
     'any.required': '請選擇「房型」',
     'string.base': '「房型」必須是文字',
+    'string.empty': '「房型」不可為空',
   }),
-});
+}).messages(optionsMessages);
 
 const foodSchema = Joi.object({
   start_date: strictLocalDateTime('預約時間')
     .custom(notPast)
     .messages({ 'date.past': '出發日期不能早於今天' }),
-});
+}).messages(optionsMessages);
 
 const travelSchema = Joi.object({
   start_date: startDate(),
   end_date: endDate(),
-});
+}).messages(optionsMessages);
 
 const baseSchema = Joi.object({
-  type: Joi.string().valid('backpacker', 'tourgroup').required(),
-  item: Joi.string().valid('hotel', 'food', 'spot', 'travel').required(),
+  type: Joi.string().valid('backpacker', 'tourgroup').required().messages({
+    'any.required': '請填寫「大分類」',
+    'any.only': '「大分類」僅能為 backpacker 或 tourgroup',
+    'string.base': '「大分類」必須是文字',
+    'string.empty': '「大分類」僅能為 backpacker 或 tourgroup',
+  }),
+  item: Joi.string().valid('hotel', 'food', 'spot', 'travel').required().messages({
+    'any.required': '請填寫「小分類」',
+    'any.only': '「小分類」僅能為 hotel、food、spot 或 travel',
+    'string.base': '「小分類」必須是文字',
+    'string.empty': '「小分類」僅能為 hotel、food、spot 或 travel',
+  }),
   people: Joi.number().integer().min(1).required().messages({
     'any.required': '請填寫「人數」',
     'number.base': '「人數」必須是數字',
+    'number.integer': '「人數」必須是整數',
     'number.min': '「人數」至少為 1 人',
   }),
   options: Joi.when('item', {
@@ -91,6 +108,8 @@ const baseSchema = Joi.object({
   }, 'Type-Item Combo Validation')
   .messages({
     'any.invalidCombo': '「大分類」與「小分類」的組合不合法',
+    'object.base': '請求內容必須是物件',
+    'object.unknown': '請求內容含有不支援的欄位',
   });
 
 const paramsSchema = Joi.object({
