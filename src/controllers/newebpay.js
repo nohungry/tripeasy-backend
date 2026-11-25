@@ -8,6 +8,7 @@ const {
   expireIfOverdue,
   settlePaidOrder,
   tradeLimitSeconds,
+  pastOrderDeadline,
 } = require('../utils/trade');
 const {
   encryptTradeInfo,
@@ -40,6 +41,10 @@ async function post_newebpay_payment(req, res, next) {
     if (locked.payment_status !== ORDER_STATUS.PENDING) {
       throw new TradeError(409, '訂單狀態不允許此操作');
     }
+    // 訂單自己的期限已過就不再接受新的付款嘗試（進行中的嘗試只保護它自己，不能無限延長訂單）
+    if (await pastOrderDeadline(client, order_id)) {
+      throw new TradeError(409, '訂單已逾時');
+    }
 
     const { payable: amt } = await computePayable(client, order_id);
     const titles = await client.query(
@@ -59,8 +64,6 @@ async function post_newebpay_payment(req, res, next) {
        VALUES ($1, $2, $3, $4, $5, 0, $6, $7)`,
       [id, order_id, locked.address, locked.phone, locked.payment_type, amt, merchantOrderNo]
     );
-    await client.query('COMMIT');
-
     const { MerchantID, Version, RespondType, PayGateWay, NotifyUrl, ReturnUrl } = process.env;
     const tradeInfo = encryptTradeInfo({
       MerchantID,
@@ -79,7 +82,7 @@ async function post_newebpay_payment(req, res, next) {
 
     const hidden = (name, value) =>
       `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`;
-    res.status(200).type('html').send(`<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html>
   <head><meta charset="UTF-8"><title>Redirecting...</title></head>
   <body>
@@ -91,7 +94,9 @@ async function post_newebpay_payment(req, res, next) {
     </form>
     <script>document.getElementById('payForm').submit();</script>
   </body>
-</html>`);
+</html>`;
+    await client.query('COMMIT');
+    res.status(200).type('html').send(html);
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     if (error instanceof TradeError) {
@@ -151,6 +156,17 @@ async function post_newebpay_notify(req, res, next) {
       return res.status(200).send('OK');
     }
 
+    // 7（先於金額核對，2026-11-25 修訂）：訂單已不是 0 卻收到成功通知，只記錄，payment_status 維持 0。
+    //    訂單已取消／逾時時保留已釋放，應付金額會回到未折抵的小計，不能拿來核對。
+    if (data.Status === 'SUCCESS' && order.payment_status !== ORDER_STATUS.PENDING) {
+      await client.query(
+        'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
+        [payment.payment_id, `訂單狀態 ${order.payment_status} 收到成功通知：notify=${result.Amt}`]
+      );
+      await client.query('COMMIT');
+      return res.status(200).send('OK');
+    }
+
     // 4. 金額核對（應付金額只來自 computePayable）；記錄後要 COMMIT 才不會被回滾
     const { payable } = await computePayable(client, orderId);
     if (Number(result.Amt) !== payable) {
@@ -169,7 +185,7 @@ async function post_newebpay_notify(req, res, next) {
         'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
         [payment.payment_id, message]
       );
-    } else if (order.payment_status === ORDER_STATUS.PENDING) {
+    } else {
       // 5. 成功且訂單為 0：payment → 1 並結算（同一個交易內）
       await client.query(
         `UPDATE public."payment"
@@ -179,12 +195,6 @@ async function post_newebpay_notify(req, res, next) {
         [payment.payment_id, JSON.stringify(data), message]
       );
       await settlePaidOrder(client, orderId);
-    } else {
-      // 7. 訂單已不是 0 卻收到成功通知：只記錄，payment_status 維持 0（人工退款，屬已知限制）
-      await client.query(
-        'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
-        [payment.payment_id, `訂單狀態為 ${order.payment_status}，成功通知僅記錄未結算：${message}`]
-      );
     }
 
     await client.query('COMMIT');

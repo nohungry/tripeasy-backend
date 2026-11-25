@@ -105,8 +105,20 @@ async function setOrderStatus(client, orderId, status) {
 }
 
 // 藍新交易時限（秒）：TradeInfo 的 TradeLimit 與「付款進行中」判斷共用同一個值
+// 與閘道一致夾限：1–59 視為 60、大於 900 視為 900
 function tradeLimitSeconds() {
-  return envNumber('NEWEBPAY_TRADE_LIMIT_SECONDS', 600);
+  return Math.min(Math.max(envNumber('NEWEBPAY_TRADE_LIMIT_SECONDS', 600), 60), 900);
+}
+
+// 訂單自己的期限（created_at + ORDER_PAYMENT_TIMEOUT_MINUTES）是否已過；不改任何狀態
+async function pastOrderDeadline(client, orderId) {
+  const minutes = envNumber('ORDER_PAYMENT_TIMEOUT_MINUTES', 60);
+  const result = await client.query(
+    `SELECT created_at + make_interval(mins => $2) < now() AS overdue
+     FROM public."orders" WHERE order_id = $1`,
+    [orderId, minutes]
+  );
+  return Boolean(result.rows[0]?.overdue);
 }
 
 // 付款進行中：payment_status = 0、尚未收到結果、且仍在藍新交易時限內
@@ -128,13 +140,7 @@ async function expireIfOverdue(client, order) {
   if (order.payment_status !== ORDER_STATUS.CREATED && order.payment_status !== ORDER_STATUS.PENDING) {
     return false;
   }
-  const minutes = envNumber('ORDER_PAYMENT_TIMEOUT_MINUTES', 60);
-  const overdue = await client.query(
-    `SELECT created_at + make_interval(mins => $2) < now() AS overdue
-     FROM public."orders" WHERE order_id = $1`,
-    [order.order_id, minutes]
-  );
-  if (!overdue.rows[0]?.overdue) return false;
+  if (!(await pastOrderDeadline(client, order.order_id))) return false;
   if (await paymentInProgress(client, order.order_id)) return false;
 
   await setOrderStatus(client, order.order_id, ORDER_STATUS.EXPIRED);
@@ -301,6 +307,8 @@ async function settlePaidOrder(client, orderId) {
   );
 
   // 清掉購物車中已買的項目（同行程、同出發日、同房型），其餘保留，再重算總額
+  // 先鎖 cart 列，與加入購物車（cart → cart_item）同一個順序，避免死結
+  await client.query('SELECT cart_id FROM public."cart" WHERE user_id = $1 ORDER BY cart_id FOR UPDATE', [userId]);
   await client.query(
     `DELETE FROM public."cart_item" ci
      USING public."cart" c, public."order_item" oi
@@ -323,6 +331,7 @@ async function settlePaidOrder(client, orderId) {
 module.exports = {
   ORDER_STATUS,
   tradeLimitSeconds,
+  pastOrderDeadline,
   settlePaidOrder,
   TradeError,
   lockOrder,
