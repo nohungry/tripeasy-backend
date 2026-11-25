@@ -37,18 +37,26 @@ const allowedOrigins = [
   'http://127.0.0.1:5500',
   process.env.FRONTEND_PATH,
 ];
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('不允許的來源'));
-      }
-    },
-    credentials: process.env.CORS_CREDENTIALS !== 'false',
-  })
-);
+// 藍新的 notify（伺服器對伺服器）與 return（瀏覽器從藍新網域表單 POST）本來就是跨來源，
+// 兩者都靠 TradeSha 驗簽，且 return 只做導向；只有這兩個路徑略過來源白名單，其餘路由不變。
+const GATEWAY_CALLBACK_PATHS = [
+  `/api/${version}/user/newebpay/notify`,
+  `/api/${version}/user/newebpay/return`,
+];
+const originWhitelist = cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('不允許的來源'));
+    }
+  },
+  credentials: process.env.CORS_CREDENTIALS !== 'false',
+});
+app.use((req, res, next) => {
+  if (req.method === 'POST' && GATEWAY_CALLBACK_PATHS.includes(req.path)) return next();
+  return originWhitelist(req, res, next);
+});
 
 // ─── Middleware ─────────────────────────────────────
 app.use(cookieParser());
