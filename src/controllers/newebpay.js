@@ -1,244 +1,247 @@
-const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
-const { options } = require('joi');
-const crypto = require('crypto');
-require('dotenv').config();
-
-
+const resStatus = require('../utils/resStatus');
 const {
-  MerchantID, HASHKEY, HASHIV, Version, PayGateWay,
-  NotifyUrl, ReturnUrl, RespondType
-} = process.env;
+  ORDER_STATUS,
+  TradeError,
+  lockOrder,
+  computePayable,
+  expireIfOverdue,
+  settlePaidOrder,
+  tradeLimitSeconds,
+  pastOrderDeadline,
+} = require('../utils/trade');
+const {
+  encryptTradeInfo,
+  decryptTradeInfo,
+  tradeSha,
+  verifyTradeSha,
+  escapeHtml,
+  newMerchantOrderNo,
+} = require('../utils/newebpay');
 
+const ITEM_DESC_MAX = 50;
 
-
-
-// AES 加密（生成 TradeInfo）
-function createSesEncrypt(order) {
-  const data = new URLSearchParams(order).toString();
-  const cipher = crypto.createCipheriv('aes-256-cbc', HASHKEY, HASHIV);
-  let encrypted = cipher.update(data, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return encrypted;
-}
-
-// SHA256 加密（生成 TradeSha）
-function createShaEncrypt(encrypted) {
-  const plainText = `HashKey=${HASHKEY}&${encrypted}&HashIV=${HASHIV}`;
-  const sha = crypto.createHash('sha256');
-  return sha.update(plainText).digest('hex').toUpperCase();
-}
-
-// 對應文件 21, 22 頁：將 aes 解密
-function createSesDecrypt(TradeInfo) {
-  const decrypt = crypto.createDecipheriv('aes-256-cbc', HASHKEY, HASHIV);
-  decrypt.setAutoPadding(true);
-  const text = decrypt.update(TradeInfo, 'hex', 'utf8');
-  const plainText = text + decrypt.final('utf8');
-  //const result = plainText.replace(/[\x00-\x20]+/g, '');
-  //return JSON.parse(result);
-  return JSON.parse(plainText);
-}
-
-// [POST] 編號 37 : 藍新金流交易處理(訂單新增，付款狀態狀態預設0)
+// [POST] 編號 37 : 藍新金流交易處理（金額由後端算，全部參數放進加密的 TradeInfo）
 async function post_newebpay_payment(req, res, next) {
   const { id } = req.user;
-  const {
-    order_items,
-    payment_method,
-    installment,
-    discount,
-    user,
-    order_id
-  } = req.body;
+  const { order_id } = req.body;
 
-
-
-
-  const TimeStamp = Math.round(new Date().getTime() / 1000); //時間戳記
-  const Amt = order_items.reduce((total, item) => total + item.price, 0); //金額加總
-  const Email = user.email;// 取 Email
-  const ItemDesc = order_items.map(item => item.title).join('、'); //產品說明(金流要求)
-
-  const client = await pool.connect();
-
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
-    // 更新訂單狀態為0
-    const updateResult = await client.query(`
-      UPDATE public."orders"
-      SET payment_status = 0
-      WHERE order_id = $1 AND user_id = $2
-    `, [order_id, id]);
-
-    if (updateResult.rowCount === 0) {
-      throw new Error('找不到訂單或訂單不屬於此使用者');
+    const locked = await lockOrder(client, order_id, id);
+    if (!locked) throw new TradeError(404, '查無此訂單項目');
+    if (await expireIfOverdue(client, locked)) {
+      // 逾時轉 4 與釋放保留是狀態修正，必須 COMMIT 才不會被回滾
+      await client.query('COMMIT');
+      return resStatus({ res, status: 409, message: '訂單已逾時' });
+    }
+    if (locked.payment_status !== ORDER_STATUS.PENDING) {
+      throw new TradeError(409, '訂單狀態不允許此操作');
+    }
+    // 訂單自己的期限已過就不再接受新的付款嘗試（進行中的嘗試只保護它自己，不能無限延長訂單）
+    if (await pastOrderDeadline(client, order_id)) {
+      throw new TradeError(409, '訂單已逾時');
     }
 
-    // 更新訂單明細狀態為0  未完成
-    await client.query(`
-      UPDATE public."order_item"
-      SET payment = 0
-      WHERE order_id = $1
-    `, [order_id]);
+    const { payable: amt } = await computePayable(client, order_id);
+    const titles = await client.query(
+      `SELECT t.title FROM public."order_item" oi JOIN public."tour" t ON t.tour_id = oi.tour_id
+       WHERE oi.order_id = $1 ORDER BY oi.created_at, oi.order_item_id`,
+      [order_id]
+    );
+    const itemDesc = Array.from(titles.rows.map((row) => row.title).join('、'))
+      .slice(0, ITEM_DESC_MAX)
+      .join('');
+    const owner = await client.query('SELECT email FROM public."user" WHERE user_id = $1', [id]);
+
+    const merchantOrderNo = newMerchantOrderNo();
+    await client.query(
+      `INSERT INTO public."payment"
+         (user_id, order_id, address, phone, payment_method, payment_status, discount_price, merchant_order_no)
+       VALUES ($1, $2, $3, $4, $5, 0, $6, $7)`,
+      [id, order_id, locked.address, locked.phone, locked.payment_type, amt, merchantOrderNo]
+    );
+    const { MerchantID, Version, RespondType, PayGateWay, NotifyUrl, ReturnUrl } = process.env;
+    const tradeInfo = encryptTradeInfo({
+      MerchantID,
+      RespondType,
+      TimeStamp: Math.floor(Date.now() / 1000),
+      Version,
+      MerchantOrderNo: merchantOrderNo,
+      Amt: amt,
+      ItemDesc: itemDesc,
+      Email: owner.rows[0].email,
+      ReturnURL: ReturnUrl,
+      NotifyURL: NotifyUrl,
+      TradeLimit: tradeLimitSeconds(),
+      CREDIT: 1,
+    });
+
+    const hidden = (name, value) =>
+      `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`;
+    const html = `<!DOCTYPE html>
+<html>
+  <head><meta charset="UTF-8"><title>Redirecting...</title></head>
+  <body>
+    <form id="payForm" method="post" action="${escapeHtml(PayGateWay)}">
+      ${hidden('MerchantID', MerchantID)}
+      ${hidden('TradeInfo', tradeInfo)}
+      ${hidden('TradeSha', tradeSha(tradeInfo))}
+      ${hidden('Version', Version)}
+    </form>
+    <script>document.getElementById('payForm').submit();</script>
+  </body>
+</html>`;
+    await client.query('COMMIT');
+    res.status(200).type('html').send(html);
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error instanceof TradeError) {
+      return resStatus({ res, status: error.status, message: error.message });
+    }
+    console.error('❌ 建立付款表單時錯誤:', error);
+    next(error);
+  } finally {
+    client?.release();
+  }
+}
+
+// [POST] 編號 38 : notify（P4 spec §5.5 步驟 1–7）
+async function post_newebpay_notify(req, res, next) {
+  const { TradeInfo, TradeSha } = req.body ?? {};
+
+  // 1. 先驗簽再解密
+  if (!verifyTradeSha(TradeInfo, TradeSha)) return res.status(400).send('Bad Request');
+  let data;
+  try {
+    data = decryptTradeInfo(TradeInfo);
+  } catch (error) {
+    return res.status(400).send('Bad Request');
+  }
+  const result = data?.Result;
+  const merchantOrderNo = result?.MerchantOrderNo;
+  if (typeof merchantOrderNo !== 'string' || merchantOrderNo === '') {
+    return res.status(400).send('Bad Request');
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // 2. 用 MerchantOrderNo 找 payment 與訂單
+    const found = await client.query(
+      'SELECT order_id FROM public."payment" WHERE merchant_order_no = $1',
+      [merchantOrderNo]
+    );
+    if (found.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).send('Bad Request');
+    }
+    const orderId = found.rows[0].order_id;
+
+    // 3. 鎖訂單後才讀 payment 狀態；已處理過就直接回 200（冪等）
+    const order = await lockOrder(client, orderId);
+    const payment = (
+      await client.query(
+        'SELECT payment_id, payment_status FROM public."payment" WHERE merchant_order_no = $1 FOR UPDATE',
+        [merchantOrderNo]
+      )
+    ).rows[0];
+    if (payment.payment_status === 1) {
+      await client.query('COMMIT');
+      return res.status(200).send('OK');
+    }
+
+    // 7（先於金額核對，2026-11-25 修訂）：訂單已不是 0，通知（不論成功或失敗）一律只記錄，payment_status 維持 0。
+    //    訂單已取消／逾時時保留已釋放，應付金額會回到未折抵的小計，不能拿來核對；金額核對只在訂單為 0 時進行。
+    if (order.payment_status !== ORDER_STATUS.PENDING) {
+      const info =
+        data.Status === 'SUCCESS'
+          ? `訂單狀態 ${order.payment_status} 收到成功通知：notify=${result.Amt}`
+          : `${data.Message || data.Status || ''}（訂單狀態 ${order.payment_status}）：notify=${result.Amt}`;
+      await client.query(
+        'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
+        [payment.payment_id, info]
+      );
+      await client.query('COMMIT');
+      return res.status(200).send('OK');
+    }
+
+    // 4. 金額核對（應付金額只來自 computePayable）；記錄後要 COMMIT 才不會被回滾
+    const { payable } = await computePayable(client, orderId);
+    if (Number(result.Amt) !== payable) {
+      await client.query(
+        'UPDATE public."payment" SET result_info = $2, updated_at = now() WHERE payment_id = $1',
+        [payment.payment_id, `金額不符：notify=${result.Amt} payable=${payable}`]
+      );
+      await client.query('COMMIT');
+      return res.status(400).send('Amount Mismatch');
+    }
+
+    const message = data.Message || data.Status || '';
+    if (data.Status !== 'SUCCESS') {
+      // 6. 失敗通知：只記錄，訂單維持原狀
+      await client.query(
+        'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
+        [payment.payment_id, message]
+      );
+    } else {
+      // 5. 成功且訂單為 0：payment → 1 並結算（同一個交易內）
+      await client.query(
+        `UPDATE public."payment"
+         SET payment_status = 1, return_data = $2, return_time = now(),
+             result_info = $3, result_time = now(), updated_at = now()
+         WHERE payment_id = $1`,
+        [payment.payment_id, JSON.stringify(data), message]
+      );
+      await settlePaidOrder(client, orderId);
+    }
 
     await client.query('COMMIT');
-
-    //金流處理--------------------------------------------------------------------------------------------------------------------------------------------
-
-    // 準備金流資料
-    const order = {
-      Amt: parseInt(Amt),
-      ItemDesc,
-      Email,
-      TimeStamp,
-      MerchantOrderNo: order_id,
-    };
-
-    const aesEncrypt = createSesEncrypt(order);
-    const shaEncrypt = createShaEncrypt(aesEncrypt);
-
-    // 回傳 HTML 表單給前端導向藍新付款頁
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head><meta charset="UTF-8"><title>Redirecting...</title></head>
-        <body>
-          <form id="payForm" method="post" action="${PayGateWay}">
-            <input type="hidden" name="MerchantID" value="${MerchantID}" />
-            <input type="hidden" name="TradeInfo" value="${aesEncrypt}" />
-            <input type="hidden" name="TradeSha" value="${shaEncrypt}" />
-            <input type="hidden" name="Version" value="${Version}" />
-            <input type="hidden" name="RespondType" value="${RespondType}" />
-            <input type="hidden" name="TimeStamp" value="${order.TimeStamp}" />
-            <input type="hidden" name="MerchantOrderNo" value="${order.MerchantOrderNo}" />
-            <input type="hidden" name="Amt" value="${order.Amt}" />
-            <input type="hidden" name="ItemDesc" value="${order.ItemDesc}" />
-            <input type="hidden" name="Email" value="${order.Email}" />
-            <input type="hidden" name="ReturnURL" value="${ReturnUrl}" />
-            <input type="hidden" name="NotifyURL" value="${NotifyUrl}" />
-          </form>
-          <script>document.getElementById('payForm').submit();</script>
-        </body>
-      </html>
-    `);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('❌ 建立訂單或準備金流時錯誤:', err);
-    next(err);
+    res.status(200).send('OK');
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ notify 處理錯誤:', error);
+    next(error);
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
+// [POST] 編號 39 : return（不改資料，只導回前端結果頁）
+async function post_newebpay_return(req, res, next) {
+  const resultPage = `${process.env.FRONTEND_PATH}/#/pay/result`;
+  const { TradeInfo, TradeSha } = req.body ?? {};
 
-
-// [POST] 編號 38 : notify(訂單狀態更改，將付款狀態改為1，並新增payment)
-async function post_newebpay_notify(req, res, next) {
+  try {
+    if (!verifyTradeSha(TradeInfo, TradeSha)) return res.redirect(302, resultPage);
+    let merchantOrderNo;
     try {
-    const { TradeInfo, TradeSha } = req.body;
-
-    // 解密資料
-    const data = createSesDecrypt(TradeInfo);
-    const result = data?.Result;
-    console.log('解密後內容:', result);
-
-    if (!result?.MerchantOrderNo) {
-      console.log('缺少 MerchantOrderNo');
-      return res.status(400).end();
+      merchantOrderNo = decryptTradeInfo(TradeInfo)?.Result?.MerchantOrderNo;
+    } catch (error) {
+      return res.redirect(302, resultPage);
     }
-
-    // 驗證 TradeSha 一致性
-    const calculatedSha = createShaEncrypt(TradeInfo);
-    if (calculatedSha !== TradeSha) {
-      console.log('付款失敗：TradeSha 不一致');
-      return res.status(400).end();
+    if (typeof merchantOrderNo !== 'string' || merchantOrderNo === '') {
+      return res.redirect(302, resultPage);
     }
-
-    const order_id = result.MerchantOrderNo;
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 查詢訂單基本資料
-      const orderResult = await client.query(`
-        SELECT user_id, address, phone, discount_price
-        FROM public."orders"
-        WHERE order_id = $1
-      `, [order_id]);
-
-      if (orderResult.rowCount === 0) {
-        console.log('找不到訂單:', order_id);
-        await client.query('ROLLBACK');
-        return res.status(404).end();
-      }
-
-      const order = orderResult.rows[0];
-
-      // 新增一筆 payment 資料
-      await client.query(`
-        INSERT INTO public."payment" (
-          user_id, order_id, address, phone,
-          payment_method, payment_status,
-          discount_price, return_data, return_time,
-          result_info, result_time,
-          created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
-      `, [
-        order.user_id,
-        order_id,
-        order.address,
-        order.phone,
-        result.PaymentType,
-        1, // 已付款
-        order.discount_price,
-        JSON.stringify(data),
-        new Date(result.TradeTime),
-        result.Message || '',
-        new Date(result.PayTime || result.TradeTime)
-      ]);
-
-      // 更新 orders.payment_status = 1
-      await client.query(`
-        UPDATE public."orders"
-        SET payment_status = 1
-        WHERE order_id = $1
-      `, [order_id]);
-
-      // 更新 order_item.payment = 1
-      await client.query(`
-        UPDATE public."order_item"
-        SET payment = 1
-        WHERE order_id = $1
-      `, [order_id]);
-
-      await client.query('COMMIT');
-      console.log('Notify 處理完成：', order_id);
-      res.status(200).send('OK');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      console.error('資料庫錯誤:', err);
-      res.status(500).send('DB Error');
-    } finally {
-      client.release();
-    }
-  } catch (err) {
-    console.error('Notify 解密錯誤:', err);
-    res.status(400).send('Bad Request');
+    const found = await pool.query(
+      'SELECT order_id FROM public."payment" WHERE merchant_order_no = $1',
+      [merchantOrderNo]
+    );
+    if (found.rowCount === 0) return res.redirect(302, resultPage);
+    return res.redirect(302, `${resultPage}?order=${found.rows[0].order_id}`);
+  } catch (error) {
+    console.error('❌ return 處理錯誤:', error);
+    next(error);
   }
-}
-
-
-// [GET] 編號 39 : return
-async function get_newebpay_return(req, res, next) {
-    
 }
 
 module.exports = {
   post_newebpay_payment,
   post_newebpay_notify,
-  get_newebpay_return
-
+  post_newebpay_return,
 };

@@ -3,6 +3,7 @@ const { pool } = require('../../config/database');
 const multer = require('multer');
 
 const product_Validator = require('../../utils/Validator/product_Validator.js');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 const { query } = require('express');
 const { hasPurchased, hasReviewed, findListedTour } = require('../../utils/purchase');
 
@@ -118,8 +119,7 @@ async function get_tourData(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (queryError) {
-    //paramsError ||
-    const message = queryError?.details?.[0]?.message || '欄位驗證錯誤'; // paramsError?.details?.[0]?.message ||
+    const message = userMessage(queryError);
     resStatus({
       res: res,
       status: 400,

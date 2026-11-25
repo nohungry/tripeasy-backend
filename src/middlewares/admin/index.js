@@ -395,7 +395,30 @@ async function delete_userCoupon(req, res, next) {
   next();
 }
 
+// [POST] 管理者退款：order_id 為 UUIDv4，且訂單存在
+async function postRefundOrder(req, res, next) {
+  const { error } = isValidator.refundOrderSchema.validate(req.params, {
+    abortEarly: false,
+    stripUnknown: true,
+  });
+  if (error) {
+    return resStatus({ res, status: 400, message: error.details[0]?.message || '欄位驗證錯誤' });
+  }
+  try {
+    const found = await pool.query('SELECT 1 FROM public."orders" WHERE order_id = $1', [
+      req.params.order_id,
+    ]);
+    if (found.rowCount === 0) {
+      return resStatus({ res, status: 404, message: '查無此訂單項目' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  postRefundOrder,
   get_userCoupon,
   delete_userCoupon,
   getUserinfo,

@@ -1,6 +1,16 @@
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
 
+// cart.total_price 每次寫入後以 user_cartList 重算寫回（新程式不讀它）
+async function recalcCartTotal(client, cart_id) {
+  await client.query(
+    `UPDATE public."cart" SET total_price = COALESCE(
+       (SELECT SUM("singleTotal_Price") FROM public."user_cartList" WHERE cart_id = $1), 0)
+     WHERE cart_id = $1`,
+    [cart_id]
+  );
+}
+
 // [POST] 編號 28 : 使用者加入項目至購物車
 async function post_cartItem(req, res, next) {
   const { id } = req.user;
@@ -12,55 +22,44 @@ async function post_cartItem(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
 
-    const user_cartRepo = await client.query('SELECT * FROM public."cart" WHERE user_id = $1', [
-      id,
-    ]);
+    let cart_id;
+    const user_cartRepo = await client.query(
+      'SELECT cart_id FROM public."cart" WHERE user_id = $1 FOR UPDATE',
+      [id]
+    );
+    if (user_cartRepo.rowCount === 0) {
+      const created = await client.query(
+        'INSERT INTO public."cart" (user_id,total_price) VALUES ($1,0) RETURNING cart_id',
+        [id]
+      );
+      cart_id = created.rows[0].cart_id;
+    } else {
+      cart_id = user_cartRepo.rows[0].cart_id;
+    }
 
-    const priceRepo = await client.query(
-      `select 
-        case when 通知狀態 = '促銷' and now() between 促銷開始日期 and 促銷結束日期 then 促銷價錢
-        else 價錢 end as price from tour_base tb  WHERE 旅遊編號 = $1`,
-      [tour_id]
+    // 同會員、同行程、同開始日期、同房型（NULL 視為相同）：合併數量，否則新增
+    const existing = await client.query(
+      `SELECT cart_item_id FROM public."cart_item"
+       WHERE cart_id = $1 AND tour_id = $2 AND start_date = $3::timestamp
+         AND room_type IS NOT DISTINCT FROM $4::varchar
+       FOR UPDATE`,
+      [cart_id, tour_id, options.start_date, options.room_type ?? null]
     );
 
-    let cartRepo;
     let cartItemRepo;
-    if (user_cartRepo.rowCount === 0) {
-      cartRepo = await client.query(
-        'Insert into public."cart" (user_id,total_price) values ($1,$2) RETURNING *',
-        [id, priceRepo.rows[0].price * people]
-      );
-
+    if (existing.rowCount > 0) {
       cartItemRepo = await client.query(
-        'Insert into public."cart_item" (cart_id,tour_id,quantity,start_date,end_date,room_type) values ($1,$2,$3,$4,$5,$6) RETURNING *',
-        [
-          cartRepo.rows[0].cart_id,
-          tour_id,
-          people,
-          options.start_date,
-          options.end_date,
-          options.room_type,
-        ]
+        'UPDATE public."cart_item" SET quantity = quantity + $2 WHERE cart_item_id = $1 RETURNING *',
+        [existing.rows[0].cart_item_id, people]
       );
     } else {
-      const cartTotal = user_cartRepo.rows[0].total_price;
-      cartRepo = await client.query(
-        'Update public."cart" set total_price = $2 where user_id = $1 RETURNING *',
-        [id, priceRepo.rows[0].price * people + cartTotal]
-      );
-
       cartItemRepo = await client.query(
-        'Insert into public."cart_item" (cart_id,tour_id,quantity,start_date,end_date,room_type) values ($1,$2,$3,$4,$5,$6) RETURNING *',
-        [
-          cartRepo.rows[0].cart_id,
-          tour_id,
-          people,
-          options.start_date,
-          options.end_date,
-          options.room_type,
-        ]
+        'INSERT INTO public."cart_item" (cart_id,tour_id,quantity,start_date,end_date,room_type) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        [cart_id, tour_id, people, options.start_date, options.end_date, options.room_type]
       );
     }
+
+    await recalcCartTotal(client, cart_id);
 
     await client.query('COMMIT');
 
@@ -82,6 +81,8 @@ async function post_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -94,22 +95,21 @@ async function delete_cartItem(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
 
+    // 鎖順序：先鎖所屬 cart，再動 cart_item（與加入購物車、付款結算一致，避免死結）
+    await client.query(
+      `SELECT c.cart_id FROM public."cart" c JOIN public."cart_item" ci ON ci.cart_id = c.cart_id
+       WHERE ci.cart_item_id = $1 FOR UPDATE OF c`,
+      [cart_item_id]
+    );
+
     const deleteRepo = await client.query(
       'DELETE FROM public."cart_item" WHERE cart_item_id = $1 RETURNING *',
       [cart_item_id]
     );
 
-    const priceRepo = await client.query(
-      `select 
-        case when 通知狀態 = '促銷' and now() between 促銷開始日期 and 促銷結束日期 then 促銷價錢
-        else 價錢 end as price from tour_base tb  WHERE 旅遊編號 = $1`,
-      [deleteRepo.rows[0].tour_id]
-    );
-
-    await client.query(
-      'Update public."cart" set total_price = total_price - $1 where cart_id = $2 RETURNING *',
-      [priceRepo.rows[0].price * deleteRepo.rows[0].quantity, deleteRepo.rows[0].cart_id]
-    );
+    if (deleteRepo.rowCount > 0) {
+      await recalcCartTotal(client, deleteRepo.rows[0].cart_id);
+    }
 
     await client.query('COMMIT');
 
@@ -131,6 +131,8 @@ async function delete_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -144,8 +146,15 @@ async function patch_cartItem(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
 
-    const oldPeopleRepo = await client.query(
-      'SELECT quantity FROM public."cart_item" WHERE cart_item_id = $1',
+    // 鎖順序：先鎖所屬 cart，再動 cart_item（與加入購物車、付款結算一致，避免死結）
+    await client.query(
+      `SELECT c.cart_id FROM public."cart" c JOIN public."cart_item" ci ON ci.cart_id = c.cart_id
+       WHERE ci.cart_item_id = $1 FOR UPDATE OF c`,
+      [cart_item_id]
+    );
+
+    await client.query(
+      'SELECT cart_item_id FROM public."cart_item" WHERE cart_item_id = $1 FOR UPDATE',
       [cart_item_id]
     );
     const updateRepo = await client.query(
@@ -153,21 +162,9 @@ async function patch_cartItem(req, res, next) {
       [cart_item_id, people, options.start_date, options.end_date, options.room_type]
     );
 
-    const priceRepo = await client.query(
-      `select 
-        case when 通知狀態 = '促銷' and now() between 促銷開始日期 and 促銷結束日期 then 促銷價錢
-        else 價錢 end as price from tour_base tb  WHERE 旅遊編號 = $1`,
-      [updateRepo.rows[0].tour_id]
-    );
-
-    await client.query(
-      'Update public."cart" set total_price = total_price - $1 + $2 where cart_id = $3 RETURNING *',
-      [
-        priceRepo.rows[0].price * oldPeopleRepo.rows[0].quantity,
-        priceRepo.rows[0].price * people,
-        updateRepo.rows[0].cart_id,
-      ]
-    );
+    if (updateRepo.rowCount > 0) {
+      await recalcCartTotal(client, updateRepo.rows[0].cart_id);
+    }
 
     await client.query('COMMIT');
 
@@ -189,6 +186,8 @@ async function patch_cartItem(req, res, next) {
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -208,6 +207,7 @@ async function get_cartItem(req, res, next) {
     const data = cartData.rows.map((item) => {
       return {
         cart_id: item.cart_id,
+        cart_item_id: item.cart_item_id,
         tour_id: item.tour_id,
         type: item['大分類'],
         item: item['小分類'],
@@ -225,9 +225,15 @@ async function get_cartItem(req, res, next) {
       };
     });
 
+    // summary 為該會員全部項目（與分頁無關）
+    const totals = await pool.query(
+      `SELECT COUNT(*)::int AS total_items, COALESCE(SUM("singleTotal_Price"), 0) AS total_price
+       FROM public."user_cartList" WHERE user_id = $1`,
+      [id]
+    );
     const summary = {
-      total_items: data.length,
-      total_price: data.reduce((sum, d) => sum + d.total_price, 0),
+      total_items: totals.rows[0].total_items,
+      total_price: Number(totals.rows[0].total_price),
     };
 
     if (cartData.rowCount > 0) {

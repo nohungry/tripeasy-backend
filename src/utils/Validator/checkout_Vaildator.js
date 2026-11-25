@@ -2,17 +2,18 @@ const Joi = require('joi');
 
 const cartIDSchema = Joi.object({
   cart_id: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
-    'string.base': '「cart_id」必須是文字',
-    'string.guid': '「cart_id」必須是有效的 UUID 格式',
-    'any.required': '「cart_id」為必填欄位',
+    'string.base': '「購物車編號」必須是文字',
+    'string.empty': '「購物車編號」必須是有效的 UUID 格式',
+    'string.guid': '「購物車編號」必須是有效的 UUID 格式',
+    'any.required': '「購物車編號」為必填欄位',
   }),
 });
 
 const orderIDSchema = Joi.object({
   order_id: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
-    'string.base': '「order_id」必須是文字',
-    'string.guid': '「order_id」必須是有效的 UUID 格式',
-    'any.required': '「order_id」為必填欄位',
+    'string.base': '「訂單編號」必須是文字',
+    'string.guid': '「訂單編號」必須是有效的 UUID 格式',
+    'any.required': '「訂單編號」為必填欄位',
   }),
 });
 
@@ -24,15 +25,20 @@ const postSchema = Joi.object({
       .messages({
         'string.pattern.base': '使用者名稱需為 2~10 字元，且不得包含空白或特殊字元',
         'string.empty': '使用者名稱為必填欄位',
+        'any.required': '使用者名稱為必填欄位',
+        'string.base': '使用者名稱必須是文字',
       }),
 
     email: Joi.string().email().required().messages({
       'string.email': 'Email 格式錯誤',
+      'string.base': 'Email 必須是文字',
+      'string.empty': 'Email 為必填欄位',
       'any.required': 'Email 為必填欄位',
     }),
 
     address: Joi.string().required().messages({
       'string.base': '地址需為文字',
+      'string.empty': '地址為必填欄位',
       'any.required': '地址為必填欄位',
     }),
 
@@ -41,9 +47,14 @@ const postSchema = Joi.object({
       .required()
       .messages({
         'string.pattern.base': '電話僅允許 8~12 碼的數字',
+        'string.base': '電話必須是文字',
+        'string.empty': '電話為必填欄位',
         'any.required': '電話為必填欄位',
       }),
-  }).required(),
+  }).required().messages({
+    'object.base': '使用者資料必須是物件',
+    'any.required': '使用者資料為必填欄位',
+  }),
 
   payment_method: Joi.string().valid('credit_card', 'atm', 'cvs').required().messages({
     'any.only': '付款方式僅支援 credit_card、atm、cvs',
@@ -71,15 +82,22 @@ const postSchema = Joi.object({
       then: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
         'any.required': '優惠券代碼為必填',
         'string.guid': '優惠券代碼格式需為 UUIDv4',
+        'string.base': '優惠券代碼必須是文字',
       }),
-      otherwise: Joi.string().allow('', null).optional(),
+      otherwise: Joi.string().allow('', null).optional().messages({
+        'string.base': '優惠券代碼必須是文字',
+      }),
     }),
 
-    used_point: Joi.number().min(0).optional().messages({
+    used_point: Joi.number().integer().min(0).optional().messages({
       'number.base': '旅遊積分必須是數字',
+      'number.integer': '旅遊積分必須是整數',
+      'number.unsafe': '旅遊積分數值超出範圍',
       'number.min': '旅遊積分不得小於 0',
     }),
-  }).optional(),
+  }).optional().messages({
+    'object.base': '優惠內容必須是物件',
+  }),
 
   agree_terms: Joi.boolean().optional().messages({
     'boolean.base': '是否願意接受通知格式錯誤',

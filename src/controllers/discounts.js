@@ -1,77 +1,102 @@
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
-const e = require('express');
+const {
+  ORDER_STATUS,
+  TradeError,
+  lockOrder,
+  computePayable,
+  releaseReservations,
+  expireIfOverdue,
+  paymentInProgress,
+  evaluateDiscount,
+} = require('../utils/trade');
 
-// [POST] 編號 32 : 使用者輸入優惠卷、累積積分
+function summaryOf(money) {
+  return {
+    total_price: money.total_price,
+    promo_subtotal: money.promo_subtotal,
+    discount_amount: money.discount_amount,
+    payable: money.payable,
+    discount_price: money.payable,
+  };
+}
+
+// [POST] 編號 32 : 使用者輸入優惠卷、累積積分（只試算，不寫入保留）
 async function post_user_discounts(req, res, next) {
-  const { type, discount } = req.body;
   const userId = req.user.id;
   const { order_id } = req.params;
+  const { type, discount } = req.body;
 
+  let client;
   try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // GC14：先鎖訂單再判斷逾時
+    const locked = await lockOrder(client, order_id, userId);
+    if (!locked) throw new TradeError(404, '查無此訂單項目');
+    if (await expireIfOverdue(client, locked)) {
+      // 逾時轉 4 與釋放保留是狀態修正，必須 COMMIT 才不會被回滾
+      await client.query('COMMIT');
+      return resStatus({ res, status: 409, message: '訂單已逾時' });
+    }
+    if (locked.payment_status !== ORDER_STATUS.CREATED && locked.payment_status !== ORDER_STATUS.PENDING) {
+      throw new TradeError(409, '訂單狀態不允許此操作');
+    }
+
+    const evaluated = await evaluateDiscount(client, {
+      userId,
+      orderId: order_id,
+      type,
+      couponCode: discount.coupon,
+      usedPoint: discount.point,
+    });
+    const money = await computePayable(client, order_id, {
+      discountAmount: evaluated.discount_amount,
+    });
+
+    let discountInfo;
     if (type === 'coupon') {
-      const couponRepo = await pool.query(
-        'SELECT * FROM public."user_couponList" where code = $1 and user_id = $2',
-        [discount.coupon, userId]
-      );
-
-      const orderRepo = await pool.query(
-        'SELECT * FROM public."orders" where order_id = $1 and user_id = $2',
-        [order_id, userId]
-      );
-
-      resStatus({
-        res: res,
-        status: 200,
-        message: '優惠成功',
-        dbdata: {
-          discount: {
-            coupon_id: couponRepo.rows[0].coupon_id,
-            type: 'coupon',
-            name: couponRepo.rows[0].code,
-            discount: couponRepo.rows[0].discount,
-            description: couponRepo.rows[0].description,
-            date_period: couponRepo.rows[0].expired_date,
-          },
-          summary: {
-            total_price: orderRepo.rows[0].total_price,
-            discount_price: orderRepo.rows[0].total_price * couponRepo.rows[0].discount,
-          },
-        },
-      });
-    } else if (type === 'point') {
-      const pointRepo = await pool.query(
-        'SELECT * FROM public."user_level_point_coupon" where 使用者編號 = $1',
+      discountInfo = {
+        coupon_id: evaluated.coupon.coupon_id,
+        type: 'coupon',
+        name: evaluated.coupon.code,
+        discount: evaluated.coupon.discount,
+        description: evaluated.coupon.description,
+        date_period: evaluated.coupon.expired_date,
+      };
+    } else {
+      const balance = await client.query(
+        `SELECT travel_point FROM public."user_level" WHERE user_id = $1 ORDER BY created_at LIMIT 1`,
         [userId]
       );
-
-      const orderRepo = await pool.query(
-        'SELECT * FROM public."orders" where order_id = $1 and user_id = $2',
-        [order_id, userId]
-      );
-
-      resStatus({
-        res: res,
-        status: 200,
-        message: '優惠成功',
-        dbdata: {
-          discount: {
-            type: 'point',
-            user_point: pointRepo.rows[0].使用者旅遊積分,
-            point: discount.point,
-            remaining_point: pointRepo.rows[0].使用者旅遊積分 - discount.point,
-          },
-          summary: {
-            total_price: orderRepo.rows[0].total_price,
-            discount_price: orderRepo.rows[0].total_price - discount.point * 0.8,
-          },
-        },
-      });
+      const userPoint = Math.max(balance.rows[0]?.travel_point ?? 0, 0); // 負餘額視為 0 點可用（Q2）
+      discountInfo = {
+        type: 'point',
+        user_point: userPoint,
+        point: evaluated.used_point,
+        remaining_point: userPoint - evaluated.used_point,
+      };
     }
+
+    await client.query('COMMIT');
+
+    resStatus({
+      res,
+      status: 200,
+      message: '優惠成功',
+      dbdata: { discount: discountInfo, summary: summaryOf(money) },
+    });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error instanceof TradeError) {
+      return resStatus({ res, status: error.status, message: error.message });
+    }
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 
@@ -80,37 +105,51 @@ async function get_user_discounts(req, res, next) {
   const userId = req.user.id;
   const { order_id } = req.params;
 
+  let client;
   try {
-    const orderRepo = await pool.query(
-      'SELECT * FROM public."orders" where order_id = $1 and user_id = $2',
-      [order_id, userId]
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    const locked = await lockOrder(client, order_id, userId);
+    if (!locked) throw new TradeError(404, '查無此訂單項目');
+    if (await expireIfOverdue(client, locked)) {
+      await client.query('COMMIT');
+      return resStatus({ res, status: 409, message: '訂單已逾時' });
+    }
+    if (locked.payment_status !== ORDER_STATUS.CREATED && locked.payment_status !== ORDER_STATUS.PENDING) {
+      throw new TradeError(409, '訂單狀態不允許此操作');
+    }
+    if (await paymentInProgress(client, order_id)) {
+      throw new TradeError(409, '付款進行中，請稍後再試');
+    }
+
+    await releaseReservations(client, order_id);
+    await client.query(
+      `UPDATE public."orders" SET discount_type = 'none', discount_price = NULL, updated_at = now()
+       WHERE order_id = $1`,
+      [order_id]
     );
+    const money = await computePayable(client, order_id);
+
+    await client.query('COMMIT');
 
     // [HTTP 200] 查詢成功
-    if (orderRepo.rowCount > 0) {
-      resStatus({
-        res: res,
-        status: 200,
-        message: '查詢成功',
-        dbdata: {
-          discount: null,
-          summary: {
-            total_price: orderRepo.rows[0].total_price,
-            discount_price: orderRepo.rows[0].discount_price,
-          },
-        },
-      });
-    } else {
-      resStatus({
-        res: res,
-        status: 200,
-        message: '查詢失敗',
-      });
-    }
+    resStatus({
+      res,
+      status: 200,
+      message: '查詢成功',
+      dbdata: { discount: null, summary: summaryOf(money) },
+    });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error instanceof TradeError) {
+      return resStatus({ res, status: error.status, message: error.message });
+    }
     // [HTTP 500] 伺服器異常
     console.error('❌ 伺服器內部錯誤:', error);
     next(error);
+  } finally {
+    client?.release();
   }
 }
 

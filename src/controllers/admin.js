@@ -1,6 +1,7 @@
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
 const { CONFLICT } = require('http-status-codes');
+const { TradeError, refundOrder, ORDER_STATUS } = require('../utils/trade');
 
 // [GET] 42 : 管理者查看註冊用戶資料
 async function get_userinfo(req, res, next) {
@@ -294,7 +295,35 @@ async function delete_user_couponAssign(req, res, next) {
   }
 }
 
+// [POST] 管理者退款
+async function post_refundOrder(req, res, next) {
+  const { order_id } = req.params;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await refundOrder(client, order_id);
+    await client.query('COMMIT');
+    resStatus({
+      res,
+      status: 200,
+      message: '退款成功',
+      dbdata: { order_id, payment_status: ORDER_STATUS.REFUNDED, ...result },
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error instanceof TradeError) {
+      return resStatus({ res, status: error.status, message: error.message });
+    }
+    console.error('❌ 退款時錯誤:', error);
+    next(error);
+  } finally {
+    client?.release();
+  }
+}
+
 module.exports = {
+  post_refundOrder,
   get_userinfo,
   get_userDetailinfo,
   patch_userPurview,
