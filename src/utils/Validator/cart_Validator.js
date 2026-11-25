@@ -66,13 +66,13 @@ const baseSchema = Joi.object({
       { is: 'spot', then: travelSchema },
       { is: 'travel', then: travelSchema },
     ],
-    otherwise: Joi.forbidden().messages({ 'any.unknown': '未知的 options 組合' }),
+    otherwise: Joi.forbidden().messages({ 'any.unknown': '未知的「選項」組合' }),
   })
     .not(null)
     .required()
     .messages({
-      'any.invalid': '「options」不可為 null',
-      'any.required': '請提供 options 設定',
+      'any.invalid': '「選項」不可為 null',
+      'any.required': '請提供「選項」設定',
     }),
 })
   .custom((value, helpers) => {
@@ -90,47 +90,47 @@ const baseSchema = Joi.object({
     return value;
   }, 'Type-Item Combo Validation')
   .messages({
-    'any.invalidCombo': '「type」與「item」的組合不合法',
+    'any.invalidCombo': '「大分類」與「小分類」的組合不合法',
   });
 
 const paramsSchema = Joi.object({
   tour_id: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
-    'string.base': '「tour_id」必須是文字',
-    'string.guid': '「tour_id」必須是有效的 UUID 格式',
-    'any.required': '「tour_id」為必填欄位',
+    'string.base': '「旅遊項目編號」必須是文字',
+    'string.guid': '「旅遊項目編號」必須是有效的 UUID 格式',
+    'any.required': '「旅遊項目編號」為必填欄位',
   }),
 });
 
 const cartIDSchema = Joi.object({
   cart_item_id: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
-    'string.base': '「cart_item_id」必須是文字',
-    'string.guid': '「cart_item_id」必須是有效的 UUID 格式',
-    'any.required': '「cart_item_id」為必填欄位',
+    'string.base': '「購物車項目編號」必須是文字',
+    'string.guid': '「購物車項目編號」必須是有效的 UUID 格式',
+    'any.required': '「購物車項目編號」為必填欄位',
   }),
 });
 
 const commonSchema = Joi.object({
   page: Joi.number().integer().min(1).default(1).messages({
-    'number.base': '「page」必須是數字',
-    'number.integer': '「page」必須是整數',
-    'number.min': '「page」至少是 1',
-    'any.required': '「page」為必填欄位',
+    'number.base': '「頁數」必須是數字',
+    'number.integer': '「頁數」必須是整數',
+    'number.min': '「頁數」至少是 1',
+    'any.required': '「頁數」為必填欄位',
   }),
 
   limit: Joi.number().integer().min(1).default(4).messages({
-    'number.base': '「limit」必須是數字',
-    'number.integer': '「limit」必須是整數',
-    'number.min': '「limit」至少是 1',
-    'any.required': '「limit」為必填欄位',
+    'number.base': '「每頁筆數」必須是數字',
+    'number.integer': '「每頁筆數」必須是整數',
+    'number.min': '「每頁筆數」至少是 1',
+    'any.required': '「每頁筆數」為必填欄位',
   }),
 
   lang: Joi.string()
     .valid(...supportedLanguages)
     .default('zh-TW')
     .messages({
-      'any.only': `「lang」僅支援：${supportedLanguages.join(', ')}`,
-      'string.base': '「lang」必須是文字',
-      'any.required': '「lang」為必填欄位',
+      'any.only': `「語言」僅支援：${supportedLanguages.join(', ')}`,
+      'string.base': '「語言」必須是文字',
+      'any.required': '「語言」為必填欄位',
     }),
 });
 

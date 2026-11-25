@@ -40,7 +40,7 @@ async function post_userCart(req, res, next) {
     return resStatus({
       res,
       status: 400,
-      message: '「type」與「item」的組合不合法',
+      message: '「大分類」與「小分類」的組合不合法',
     });
   }
 
@@ -260,7 +260,7 @@ async function patch_userCart(req, res, next) {
 
 // [GET] 編號 31 : 使用者查看購物車內容
 async function get_userCart(req, res, next) {
-  const { error: queryError } = cart_Validator.commonSchema.validate(req.query);
+  const { error: queryError, value: queryValue } = cart_Validator.commonSchema.validate(req.query);
 
   // [HTTP 400] 資料錯誤
   if (queryError) {
@@ -272,6 +272,9 @@ async function get_userCart(req, res, next) {
     });
     return;
   }
+
+  // Joi 的預設值（page、limit、lang）寫回 req.query，controller 才拿得到
+  req.query = queryValue;
 
   // [HTTP 404] 查無此人物
   const { id } = req.user;

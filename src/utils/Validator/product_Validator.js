@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const { strictDate } = require('../dateRules');
 
 // ============ 用於「查詢」功能的常數與驗證模型 (必須保留) ============
 const supportedLanguages = ['zh-TW', 'en-US'];
@@ -26,76 +27,70 @@ const queryschema = Joi.object({
     .valid(...supportedType)
     .optional()
     .messages({
-      'any.only': `「type」僅能為 ${supportedType.join('、')}`,
-      'string.base': '「type」必須是字串',
+      'any.only': `「大分類」僅能為 ${supportedType.join('、')}`,
+      'string.base': '「大分類」必須是字串',
     }),
   item: Joi.string().optional().messages({
-    'string.base': '「item」必須是字串',
+    'string.base': '「小分類」必須是字串',
   }),
   tag: Joi.string()
     .valid(...supportedTags)
     .optional()
     .messages({
-      'string.base': '「tag」必須是字串',
-      'any.only': `「tag」僅能為 ${supportedTags.join('、')}`,
+      'string.base': '「標籤」必須是字串',
+      'any.only': `「標籤」僅能為 ${supportedTags.join('、')}`,
     }),
   country: Joi.string().optional().messages({
-    'string.base': '「country」必須是字串',
+    'string.base': '「國家」必須是字串',
   }),
   region: Joi.string().optional().messages({
-    'string.base': '「region」必須是字串',
+    'string.base': '「地區」必須是字串',
   }),
   min_price: Joi.number().optional().messages({
-    'number.base': '「min_price」必須是數字',
+    'number.base': '「最低價格」必須是數字',
   }),
   max_price: Joi.number().optional().messages({
-    'number.base': '「max_price」必須是數字',
+    'number.base': '「最高價格」必須是數字',
   }),
-  start_date: Joi.date().iso().optional().messages({
-    'date.base': '「start_date」必須是日期格式',
-    'date.format': '「start_date」格式錯誤，請用 YYYY-MM-DD',
-  }),
-  end_date: Joi.date().iso().optional().messages({
-    'date.base': '「end_date」必須是日期格式',
-    'date.format': '「end_date」格式錯誤，請用 YYYY-MM-DD',
-  }),
+  start_date: strictDate('出發日期').optional(),
+  end_date: strictDate('結束日期').optional(),
   keyword: Joi.string().optional().messages({
-    'string.base': '「keyword」必須是字串',
+    'string.base': '「關鍵字」必須是字串',
   }),
   duration: Joi.number().integer().optional().messages({
-    'number.base': '「duration」必須是數字',
-    'number.integer': '「duration」必須是整數',
+    'number.base': '「天數」必須是數字',
+    'number.integer': '「天數」必須是整數',
   }),
   page: Joi.number().integer().min(1).default(1).required().messages({
-    'any.required': '請輸入「page」',
-    'number.base': '「page」必須是數字',
-    'number.min': '「page」必須大於等於 1',
-    'number.integer': '「page」必須是整數',
+    'any.required': '請輸入「頁數」',
+    'number.base': '「頁數」必須是數字',
+    'number.min': '「頁數」必須大於等於 1',
+    'number.integer': '「頁數」必須是整數',
   }),
   limit: Joi.number().integer().min(1).default(10).required().messages({
-    'any.required': '請輸入「limit」',
-    'number.base': '「limit」必須是數字',
-    'number.min': '「limit」必須大於等於 1',
-    'number.integer': '「limit」必須是整數',
+    'any.required': '請輸入「每頁筆數」',
+    'number.base': '「每頁筆數」必須是數字',
+    'number.min': '「每頁筆數」必須大於等於 1',
+    'number.integer': '「每頁筆數」必須是整數',
   }),
   sort_by: Joi.string().valid('price', 'date').default('date').required().messages({
-    'any.required': '請輸入「sort_by」',
-    'string.base': '「sort_by」必須是字串',
-    'any.only': '「sort_by」僅能為 price 或 date',
+    'any.required': '請輸入「排序欄位」',
+    'string.base': '「排序欄位」必須是字串',
+    'any.only': '「排序欄位」僅能為 price 或 date',
   }),
   order: Joi.string().valid('asc', 'desc').default('asc').required().messages({
-    'any.required': '請輸入「order」',
-    'string.base': '「order」必須是字串',
-    'any.only': '「order」僅能為 asc 或 desc',
+    'any.required': '請輸入「排序方向」',
+    'string.base': '「排序方向」必須是字串',
+    'any.only': '「排序方向」僅能為 asc 或 desc',
   }),
   lang: Joi.string()
     .valid(...supportedLanguages)
     .default('zh-TW')
     .required()
     .messages({
-      'any.required': '請輸入「lang」',
-      'string.base': '「lang」必須是字串',
-      'any.only': `「lang」僅能為 ${supportedLanguages.join('、')}`,
+      'any.required': '請輸入「語言」',
+      'string.base': '「語言」必須是字串',
+      'any.only': `「語言」僅能為 ${supportedLanguages.join('、')}`,
     }),
 }).custom((value, helpers) => {
   const { type, item, start_date, end_date, min_price, max_price, duration } = value;
@@ -103,25 +98,23 @@ const queryschema = Joi.object({
     const validItems = itemOptions[type];
     if (!validItems || !validItems.includes(item)) {
       return helpers.message(
-        `當「type」為「${type}」時，「item」僅能為：${validItems ? validItems.join('、') : '（無可選項）'}`
+        `當「大分類」為「${type}」時，「小分類」僅能為：${validItems ? validItems.join('、') : '（無可選項）'}`
       );
     }
   }
   if (start_date && end_date && new Date(start_date) > new Date(end_date)) {
-    return helpers.message('「start_date」不可大於「end_date」');
+    return helpers.message('「出發日期」不可晚於「結束日期」');
   }
   if (typeof min_price === 'number' && typeof max_price === 'number' && min_price > max_price) {
-    return helpers.message('「min_price」不可大於「max_price」');
+    return helpers.message('「最低價格」不可大於「最高價格」');
   }
   if (start_date && end_date && typeof duration === 'number') {
-    const start = new Date(start_date);
-    const end = new Date(end_date);
-    const startUTC = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-    const endUTC = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+    const startUTC = Date.parse(start_date);
+    const endUTC = Date.parse(end_date);
     const days = Math.floor((endUTC - startUTC) / (1000 * 60 * 60 * 24)) + 1;
     if (duration > days) {
       return helpers.message(
-        `「duration」不可大於「start_date」到「end_date」涵蓋的天數（目前區間共 ${days} 天）`
+        `「天數」不可大於出發日期到結束日期涵蓋的天數（目前區間共 ${days} 天）`
       );
     }
   }
