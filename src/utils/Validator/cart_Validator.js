@@ -74,6 +74,7 @@ const baseSchema = Joi.object({
     'any.required': '請填寫「人數」',
     'number.base': '「人數」必須是數字',
     'number.integer': '「人數」必須是整數',
+    'number.unsafe': '「人數」數值超出範圍',
     'number.min': '「人數」至少為 1 人',
   }),
   options: Joi.when('item', {
@@ -132,6 +133,7 @@ const commonSchema = Joi.object({
   page: Joi.number().integer().min(1).default(1).messages({
     'number.base': '「頁數」必須是數字',
     'number.integer': '「頁數」必須是整數',
+    'number.unsafe': '「頁數」數值超出範圍',
     'number.min': '「頁數」至少是 1',
     'any.required': '「頁數」為必填欄位',
   }),
@@ -139,6 +141,7 @@ const commonSchema = Joi.object({
   limit: Joi.number().integer().min(1).default(4).messages({
     'number.base': '「每頁筆數」必須是數字',
     'number.integer': '「每頁筆數」必須是整數',
+    'number.unsafe': '「每頁筆數」數值超出範圍',
     'number.min': '「每頁筆數」至少是 1',
     'any.required': '「每頁筆數」為必填欄位',
   }),
@@ -151,6 +154,8 @@ const commonSchema = Joi.object({
       'string.base': '「語言」必須是文字',
       'any.required': '「語言」為必填欄位',
     }),
+}).messages({
+  'object.unknown': '請求參數含有不支援的欄位',
 });
 
 module.exports = {

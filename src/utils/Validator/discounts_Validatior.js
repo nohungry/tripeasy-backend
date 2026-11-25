@@ -18,6 +18,7 @@ const baseschema = Joi.object({
     point: Joi.number().integer().min(0).messages({
       'number.base': '「旅遊積分」必須是數字',
       'number.integer': '「旅遊積分」必須是整數',
+      'number.unsafe': '「旅遊積分」數值超出範圍',
       'number.min': '「旅遊積分」最小值為 0',
     }),
   })

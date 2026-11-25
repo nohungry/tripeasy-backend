@@ -32,6 +32,7 @@ const queryschema = Joi.object({
     }),
   item: Joi.string().optional().messages({
     'string.base': '「小分類」必須是字串',
+    'string.empty': '「小分類」不可為空',
   }),
   tag: Joi.string()
     .valid(...supportedTags)
@@ -42,15 +43,19 @@ const queryschema = Joi.object({
     }),
   country: Joi.string().optional().messages({
     'string.base': '「國家」必須是字串',
+    'string.empty': '「國家」不可為空',
   }),
   region: Joi.string().optional().messages({
     'string.base': '「地區」必須是字串',
+    'string.empty': '「地區」不可為空',
   }),
   min_price: Joi.number().optional().messages({
     'number.base': '「最低價格」必須是數字',
+    'number.unsafe': '「最低價格」數值超出範圍',
   }),
   max_price: Joi.number().optional().messages({
     'number.base': '「最高價格」必須是數字',
+    'number.unsafe': '「最高價格」數值超出範圍',
   }),
   start_date: strictDate('出發日期').optional(),
   end_date: strictDate('結束日期').optional(),
@@ -61,18 +66,21 @@ const queryschema = Joi.object({
   duration: Joi.number().integer().optional().messages({
     'number.base': '「天數」必須是數字',
     'number.integer': '「天數」必須是整數',
+    'number.unsafe': '「天數」數值超出範圍',
   }),
   page: Joi.number().integer().min(1).default(1).required().messages({
     'any.required': '請輸入「頁數」',
     'number.base': '「頁數」必須是數字',
     'number.min': '「頁數」必須大於等於 1',
     'number.integer': '「頁數」必須是整數',
+    'number.unsafe': '「頁數」數值超出範圍',
   }),
   limit: Joi.number().integer().min(1).default(10).required().messages({
     'any.required': '請輸入「每頁筆數」',
     'number.base': '「每頁筆數」必須是數字',
     'number.min': '「每頁筆數」必須大於等於 1',
     'number.integer': '「每頁筆數」必須是整數',
+    'number.unsafe': '「每頁筆數」數值超出範圍',
   }),
   sort_by: Joi.string().valid('price', 'date').default('date').required().messages({
     'any.required': '請輸入「排序欄位」',
