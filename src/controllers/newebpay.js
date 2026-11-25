@@ -156,12 +156,16 @@ async function post_newebpay_notify(req, res, next) {
       return res.status(200).send('OK');
     }
 
-    // 7（先於金額核對，2026-11-25 修訂）：訂單已不是 0 卻收到成功通知，只記錄，payment_status 維持 0。
-    //    訂單已取消／逾時時保留已釋放，應付金額會回到未折抵的小計，不能拿來核對。
-    if (data.Status === 'SUCCESS' && order.payment_status !== ORDER_STATUS.PENDING) {
+    // 7（先於金額核對，2026-11-25 修訂）：訂單已不是 0，通知（不論成功或失敗）一律只記錄，payment_status 維持 0。
+    //    訂單已取消／逾時時保留已釋放，應付金額會回到未折抵的小計，不能拿來核對；金額核對只在訂單為 0 時進行。
+    if (order.payment_status !== ORDER_STATUS.PENDING) {
+      const info =
+        data.Status === 'SUCCESS'
+          ? `訂單狀態 ${order.payment_status} 收到成功通知：notify=${result.Amt}`
+          : `${data.Message || data.Status || ''}（訂單狀態 ${order.payment_status}）：notify=${result.Amt}`;
       await client.query(
         'UPDATE public."payment" SET result_info = $2, result_time = now(), updated_at = now() WHERE payment_id = $1',
-        [payment.payment_id, `訂單狀態 ${order.payment_status} 收到成功通知：notify=${result.Amt}`]
+        [payment.payment_id, info]
       );
       await client.query('COMMIT');
       return res.status(200).send('OK');

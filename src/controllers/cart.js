@@ -95,6 +95,13 @@ async function delete_cartItem(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
 
+    // 鎖順序：先鎖所屬 cart，再動 cart_item（與加入購物車、付款結算一致，避免死結）
+    await client.query(
+      `SELECT c.cart_id FROM public."cart" c JOIN public."cart_item" ci ON ci.cart_id = c.cart_id
+       WHERE ci.cart_item_id = $1 FOR UPDATE OF c`,
+      [cart_item_id]
+    );
+
     const deleteRepo = await client.query(
       'DELETE FROM public."cart_item" WHERE cart_item_id = $1 RETURNING *',
       [cart_item_id]
@@ -138,6 +145,13 @@ async function patch_cartItem(req, res, next) {
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+
+    // 鎖順序：先鎖所屬 cart，再動 cart_item（與加入購物車、付款結算一致，避免死結）
+    await client.query(
+      `SELECT c.cart_id FROM public."cart" c JOIN public."cart_item" ci ON ci.cart_id = c.cart_id
+       WHERE ci.cart_item_id = $1 FOR UPDATE OF c`,
+      [cart_item_id]
+    );
 
     await client.query(
       'SELECT cart_item_id FROM public."cart_item" WHERE cart_item_id = $1 FOR UPDATE',
