@@ -157,6 +157,31 @@ async function paymentInProgress(client, orderId) {
   return result.rows[0].in_progress;
 }
 
+// 要求的折扣是否與訂單目前的保留相同（同類型、同 coupon_id／同點數）。只讀、不加鎖；
+// 呼叫端必須已 lockOrder。付款進行中允許「同折扣」的預覽，其餘仍擋下。
+async function reservationMatches(client, orderId, { type, couponId, usedPoint } = {}) {
+  const coupon = await client.query(
+    'SELECT coupon_id::text AS coupon_id FROM public."user_coupon" WHERE order_id = $1 AND status = -1',
+    [orderId]
+  );
+  const point = await client.query(
+    `SELECT COALESCE(SUM(-point), 0)::int AS used FROM public."point_record"
+     WHERE order_id = $1 AND type = '減少_確認中'`,
+    [orderId]
+  );
+  const reservedCoupon = coupon.rows[0]?.coupon_id ?? null;
+  const reservedPoint = point.rows[0].used;
+
+  if (type === 'coupon') {
+    return reservedCoupon !== null && reservedCoupon === String(couponId) && reservedPoint === 0;
+  }
+  if (type === 'point') {
+    const wanted = Number(usedPoint ?? 0);
+    return reservedCoupon === null && reservedPoint === wanted;
+  }
+  return reservedCoupon === null && reservedPoint === 0;
+}
+
 // 呼叫端必須已在交易內以 lockOrder 鎖住該訂單再傳入
 async function expireIfOverdue(client, order) {
   if (order.payment_status !== ORDER_STATUS.CREATED && order.payment_status !== ORDER_STATUS.PENDING) {
@@ -408,6 +433,7 @@ module.exports = {
   releaseReservations,
   setOrderStatus,
   paymentInProgress,
+  reservationMatches,
   expireIfOverdue,
   cancelPendingOrders,
   evaluateDiscount,

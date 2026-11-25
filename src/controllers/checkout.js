@@ -1,4 +1,5 @@
 const resStatus = require('../utils/resStatus');
+const { todayInTaipei } = require('../utils/dateRules');
 const { pool } = require('../config/database');
 const {
   ORDER_STATUS,
@@ -8,6 +9,7 @@ const {
   setOrderStatus,
   expireIfOverdue,
   paymentInProgress,
+  reservationMatches,
   cancelPendingOrders,
   evaluateDiscount,
   reserveDiscount,
@@ -35,14 +37,20 @@ async function post_user_Order(req, res, next) {
     const lines = await client.query(
       `SELECT ci.tour_id, ci.quantity, ci.start_date, ci.end_date, ci.room_type,
               (tb."價錢" * ci.quantity)::float8 AS total_price,
-              (tb."促銷價錢" * ci.quantity)::float8 AS discount_price
+              (tb."促銷價錢" * ci.quantity)::float8 AS discount_price,
+              (tb."上下架狀態" IS DISTINCT FROM 1
+                 OR ci.start_date::date < $2::date) AS stale
        FROM public."cart_item" ci
        JOIN public."tour_base" tb ON tb."旅遊編號" = ci.tour_id
        WHERE ci.cart_id = $1
        ORDER BY ci.cart_item_id`,
-      [cart_id]
+      [cart_id, todayInTaipei()]
     );
     if (lines.rowCount === 0) throw new TradeError(400, '購物車沒有項目');
+    // 購物車項目可能放到下架或過了出發日，建單時重新驗證
+    if (lines.rows.some((row) => row.stale)) {
+      throw new TradeError(409, '購物車中有已下架或已過出發日的項目，請移除後再結帳');
+    }
 
     await cancelPendingOrders(client, id);
 
@@ -163,18 +171,30 @@ async function patch_user_CheckoutUserInfo(req, res, next) {
     if (locked.payment_status !== ORDER_STATUS.CREATED && locked.payment_status !== ORDER_STATUS.PENDING) {
       throw new TradeError(409, '訂單狀態不允許此操作');
     }
-    if (await paymentInProgress(client, order_id)) {
+    // 付款進行中：只有「要求的折扣等於目前保留」才放行（只更新地址／電話／付款方式，不動保留）
+    const inProgress = await paymentInProgress(client, order_id);
+    const requestedType = discount.type ?? 'none';
+    if (
+      inProgress &&
+      !(await reservationMatches(client, order_id, {
+        type: requestedType,
+        couponId: discount.coupon_id,
+        usedPoint: discount.used_point,
+      }))
+    ) {
       throw new TradeError(409, '付款進行中，請稍後再試');
     }
 
-    const evaluated = await evaluateDiscount(client, {
-      userId: id,
-      orderId: order_id,
-      type: discount.type ?? 'none',
-      couponId: discount.coupon_id,
-      usedPoint: discount.used_point,
-    });
-    await reserveDiscount(client, order_id, id, evaluated);
+    if (!inProgress) {
+      const evaluated = await evaluateDiscount(client, {
+        userId: id,
+        orderId: order_id,
+        type: requestedType,
+        couponId: discount.coupon_id,
+        usedPoint: discount.used_point,
+      });
+      await reserveDiscount(client, order_id, id, evaluated);
+    }
 
     await client.query(
       'UPDATE public."orders" SET address = $2, phone = $3, payment_type = $4, updated_at = now() WHERE order_id = $1',
