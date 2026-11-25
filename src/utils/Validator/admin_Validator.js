@@ -106,7 +106,17 @@ const deleteChangeinfo = Joi.object({
   tour_id: nonEmptyString //UUIDField
 });
 
+// 退款
+const refundOrderSchema = Joi.object({
+  order_id: Joi.string().guid({ version: ['uuidv4'] }).required().messages({
+    'string.guid': 'order_id 格式不正確，需為 UUID 格式',
+    'any.required': 'order_id 為必填欄位',
+    'string.empty': 'order_id 不可為空',
+  }),
+});
+
 module.exports = {
+    refundOrderSchema,
     userinfoSchema,
     userDetailinfoSchema,
     userPurviewSchema,

@@ -39,10 +39,32 @@ async function computePayable(client, orderId, { discountAmount: assumed } = {})
     [orderId]
   );
   const order = await client.query(
-    'SELECT payment_status FROM public."orders" WHERE order_id = $1',
+    'SELECT payment_status, discount_type FROM public."orders" WHERE order_id = $1',
     [orderId]
   );
-  const paid = order.rows[0]?.payment_status === ORDER_STATUS.PAID;
+  const orderStatus = order.rows[0]?.payment_status;
+  const paid = orderStatus === ORDER_STATUS.PAID;
+
+  // 已退款：券與保留已釋放，應付金額取成功付款（payment_status = 1）當時實付的金額
+  if (orderStatus === ORDER_STATUS.REFUNDED) {
+    const charged = await client.query(
+      `SELECT discount_price::float8 AS amount FROM public."payment"
+       WHERE order_id = $1 AND payment_status = 1 AND discount_price IS NOT NULL LIMIT 1`,
+      [orderId]
+    );
+    if (charged.rowCount > 0) {
+      const totalPrice = Math.round(sums.rows[0].total_price);
+      const promoSubtotal = Math.round(sums.rows[0].promo_subtotal);
+      const payable = Math.round(charged.rows[0].amount);
+      return {
+        total_price: totalPrice,
+        promo_subtotal: promoSubtotal,
+        discount_amount: promoSubtotal - payable,
+        payable,
+        discount_type: order.rows[0].discount_type ?? 'none',
+      };
+    }
+  }
   const couponStatus = paid ? 1 : -1;
   const pointType = paid ? '減少' : '減少_確認中';
 
@@ -328,7 +350,54 @@ async function settlePaidOrder(client, orderId) {
   return { payable, reward };
 }
 
+// 管理員退款（R2：手動標記，不呼叫藍新）。呼叫端 BEGIN／COMMIT。
+// 鎖順序（GC14）：orders → orders／order_item → user_coupon／point_record → user_level
+async function refundOrder(client, orderId) {
+  const order = await lockOrder(client, orderId);
+  if (!order) throw new TradeError(404, '查無此訂單項目');
+  if (order.payment_status !== ORDER_STATUS.PAID) {
+    throw new TradeError(409, '只有已付款的訂單可以退款');
+  }
+
+  await setOrderStatus(client, orderId, ORDER_STATUS.REFUNDED);
+
+  await client.query(
+    `UPDATE public."user_coupon" SET status = 0, order_id = NULL, updated_at = now() WHERE order_id = $1`,
+    [orderId]
+  );
+
+  const sums = await client.query(
+    `SELECT COALESCE(SUM(-point) FILTER (WHERE type = '減少'), 0)::int AS used,
+            COALESCE(SUM(point) FILTER (WHERE type = '新增'), 0)::int AS reward
+     FROM public."point_record" WHERE order_id = $1`,
+    [orderId]
+  );
+  const { used, reward } = sums.rows[0];
+
+  if (used > 0) {
+    await client.query(
+      `INSERT INTO public."point_record" (user_id, order_id, type, point) VALUES ($1, $2, '退款退回', $3)`,
+      [order.user_id, orderId, used]
+    );
+  }
+  if (reward > 0) {
+    await client.query(
+      `INSERT INTO public."point_record" (user_id, order_id, type, point) VALUES ($1, $2, '退款收回', $3)`,
+      [order.user_id, orderId, -reward]
+    );
+  }
+  // 與 settlePaidOrder 同一列（最早建立的 user_level）；餘額允許為負（Q2）
+  await client.query(
+    `UPDATE public."user_level" SET travel_point = travel_point + $2, updated_at = now()
+     WHERE level_id = (SELECT level_id FROM public."user_level" WHERE user_id = $1 ORDER BY created_at LIMIT 1)`,
+    [order.user_id, used - reward]
+  );
+
+  return { returned_point: used, clawed_back: reward };
+}
+
 module.exports = {
+  refundOrder,
   ORDER_STATUS,
   tradeLimitSeconds,
   pastOrderDeadline,

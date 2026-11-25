@@ -67,4 +67,13 @@ router.delete(
   controller.delete_user_couponAssign
 );
 
+// [POST] 管理者退款（R2：手動標記已退款，歸還點數與優惠券、收回回饋點數）
+router.post(
+  '/orders/:order_id/refund',
+  auth,
+  authRole('admin'),
+  mw.postRefundOrder,
+  controller.post_refundOrder
+);
+
 module.exports = router;
