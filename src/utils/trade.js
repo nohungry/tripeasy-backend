@@ -104,9 +104,14 @@ async function setOrderStatus(client, orderId, status) {
   );
 }
 
+// 藍新交易時限（秒）：TradeInfo 的 TradeLimit 與「付款進行中」判斷共用同一個值
+function tradeLimitSeconds() {
+  return envNumber('NEWEBPAY_TRADE_LIMIT_SECONDS', 600);
+}
+
 // 付款進行中：payment_status = 0、尚未收到結果、且仍在藍新交易時限內
 async function paymentInProgress(client, orderId) {
-  const limit = envNumber('NEWEBPAY_TRADE_LIMIT_SECONDS', 600);
+  const limit = tradeLimitSeconds();
   const result = await client.query(
     `SELECT EXISTS (
        SELECT 1 FROM public."payment"
@@ -261,8 +266,64 @@ async function reserveDiscount(client, orderId, userId, evaluated) {
   );
 }
 
+// notify 成功時的結算（同一個交易內）。呼叫前訂單已鎖且狀態為 0。
+// payable 要在任何轉換之前算（computePayable 會依訂單狀態讀保留或已使用的紀錄）。
+async function settlePaidOrder(client, orderId) {
+  const { payable } = await computePayable(client, orderId);
+  const owner = await client.query('SELECT user_id FROM public."orders" WHERE order_id = $1', [orderId]);
+  const userId = owner.rows[0].user_id;
+
+  await setOrderStatus(client, orderId, ORDER_STATUS.PAID);
+
+  await client.query(
+    `UPDATE public."user_coupon" SET status = 1, updated_at = now() WHERE order_id = $1 AND status = -1`,
+    [orderId]
+  );
+
+  const used = await client.query(
+    `UPDATE public."point_record" SET type = '減少', updated_at = now()
+     WHERE order_id = $1 AND type = '減少_確認中' RETURNING point`,
+    [orderId]
+  );
+  const usedPoints = used.rows.reduce((sum, row) => sum + Math.abs(row.point), 0);
+
+  const reward = Math.floor(payable * 0.1);
+  if (reward > 0) {
+    await client.query(
+      `INSERT INTO public."point_record" (user_id, order_id, type, point) VALUES ($1, $2, '新增', $3)`,
+      [userId, orderId, reward]
+    );
+  }
+  await client.query(
+    `UPDATE public."user_level" SET travel_point = travel_point + $2, updated_at = now()
+     WHERE level_id = (SELECT level_id FROM public."user_level" WHERE user_id = $1 ORDER BY created_at LIMIT 1)`,
+    [userId, reward - usedPoints]
+  );
+
+  // 清掉購物車中已買的項目（同行程、同出發日、同房型），其餘保留，再重算總額
+  await client.query(
+    `DELETE FROM public."cart_item" ci
+     USING public."cart" c, public."order_item" oi
+     WHERE ci.cart_id = c.cart_id AND c.user_id = $1 AND oi.order_id = $2
+       AND ci.tour_id = oi.tour_id
+       AND ci.start_date IS NOT DISTINCT FROM oi.start_date
+       AND ci.room_type IS NOT DISTINCT FROM oi.room_type`,
+    [userId, orderId]
+  );
+  await client.query(
+    `UPDATE public."cart" SET total_price = COALESCE(
+       (SELECT SUM("singleTotal_Price") FROM public."user_cartList" WHERE cart_id = public."cart".cart_id), 0)
+     WHERE user_id = $1`,
+    [userId]
+  );
+
+  return { payable, reward };
+}
+
 module.exports = {
   ORDER_STATUS,
+  tradeLimitSeconds,
+  settlePaidOrder,
   TradeError,
   lockOrder,
   computePayable,
