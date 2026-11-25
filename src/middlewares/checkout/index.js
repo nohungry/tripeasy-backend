@@ -2,6 +2,7 @@ const resStatus = require('../../utils/resStatus');
 const { pool } = require('../../config/database');
 
 const checkout_Vaildator = require('../../utils/Validator/checkout_Vaildator');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [POST] 編號 89 : 使用者進入填寫畫面後產生訂單
 async function post_userOrder(req, res, next) {
@@ -9,7 +10,7 @@ async function post_userOrder(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,
@@ -41,7 +42,7 @@ async function get_userOrderPrfile(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,
@@ -74,8 +75,7 @@ async function patch_userOrderPreview(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (paramsError || bodyError) {
-    const message =
-      paramsError?.details?.[0]?.message || bodyError?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(paramsError || bodyError);
     resStatus({
       res: res,
       status: 400,
@@ -105,7 +105,7 @@ async function get_userCheckOrder(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,

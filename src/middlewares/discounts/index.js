@@ -1,6 +1,7 @@
 const resStatus = require('../../utils/resStatus.js');
 
 const discounts_Validatior = require('../../utils/Validator/discounts_Validatior.js');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [POST] 編號 32 : 使用者輸入優惠卷、累積積分
 async function postDiscounts(req, res, next) {
@@ -9,8 +10,7 @@ async function postDiscounts(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (bodyError || orderError) {
-    const message =
-      bodyError?.details[0]?.message || orderError?.details[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(bodyError || orderError);
     resStatus({
       res: res,
       status: 400,
@@ -28,7 +28,7 @@ async function getDiscounts(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error?.details[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,

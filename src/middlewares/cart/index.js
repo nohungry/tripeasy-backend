@@ -2,6 +2,7 @@ const resStatus = require('../../utils/resStatus.js');
 const { pool } = require('../../config/database');
 
 const cart_Validator = require('../../utils/Validator/cart_Validator.js');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [POST] 編號 28 : 使用者加入項目至購物車
 async function post_userCart(req, res, next) {
@@ -11,8 +12,7 @@ async function post_userCart(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (bodyError || paramsError) {
-    const message =
-      bodyError?.details?.[0]?.message || paramsError?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(bodyError || paramsError);
     resStatus({
       res: res,
       status: 400,
@@ -122,7 +122,7 @@ async function delete_userCart(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (paramsError) {
-    const message = paramsError?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(paramsError);
     resStatus({
       res: res,
       status: 400,
@@ -158,8 +158,7 @@ async function patch_userCart(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (bodyError || paramsError) {
-    const message =
-      bodyError?.details?.[0]?.message || paramsError?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(bodyError || paramsError);
     resStatus({
       res: res,
       status: 400,
@@ -264,7 +263,7 @@ async function get_userCart(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (queryError) {
-    const message = queryError?.details?.[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(queryError);
     resStatus({
       res: res,
       status: 400,
