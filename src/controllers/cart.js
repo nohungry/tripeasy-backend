@@ -22,20 +22,16 @@ async function post_cartItem(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
 
-    let cart_id;
+    // cart 有 UNIQUE(user_id)：併發首次加入由 ON CONFLICT 收斂成同一列，再鎖定該列
+    await client.query(
+      'INSERT INTO public."cart" (user_id,total_price) VALUES ($1,0) ON CONFLICT (user_id) DO NOTHING',
+      [id]
+    );
     const user_cartRepo = await client.query(
       'SELECT cart_id FROM public."cart" WHERE user_id = $1 FOR UPDATE',
       [id]
     );
-    if (user_cartRepo.rowCount === 0) {
-      const created = await client.query(
-        'INSERT INTO public."cart" (user_id,total_price) VALUES ($1,0) RETURNING cart_id',
-        [id]
-      );
-      cart_id = created.rows[0].cart_id;
-    } else {
-      cart_id = user_cartRepo.rows[0].cart_id;
-    }
+    const cart_id = user_cartRepo.rows[0].cart_id;
 
     // 同會員、同行程、同開始日期、同房型（NULL 視為相同）：合併數量，否則新增
     const existing = await client.query(
