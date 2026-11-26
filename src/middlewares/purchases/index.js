@@ -3,6 +3,7 @@ const { pool } = require('../../config/database');
 
 // 資料驗證相關模組
 const purchases_Validator = require('../../utils/Validator/purchases_Validator.js');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [GET] 編號 20 : 使用者已購買項目清單
 // 無
@@ -18,24 +19,24 @@ async function getpurchasesOrder(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (paramsError || queryError) {
-    const message =
-      paramsError?.details[0]?.message || queryError?.details[0]?.message || '欄位驗證錯誤';
     return resStatus({
       res: res,
       status: 400,
-      message: message,
+      message: userMessage(paramsError || queryError),
     });
   }
 
-  // [HTTP 404] 無此訂單編號
-  const dataRepo = await pool.query('SELECT * FROM public."order_item" where order_item_id = $1', [
-    req.params.order_item_id,
-  ]);
-  if (!dataRepo) {
+  // [HTTP 404] 查無此訂單項目（不存在或不是本人的；擁有者條件寫在 SQL）
+  const dataRepo = await pool.query(
+    `SELECT 1 FROM public."order_item" oi JOIN public."orders" o USING (order_id)
+     WHERE oi.order_item_id = $1 AND o.user_id = $2`,
+    [paramsValue.order_item_id, req.user.id]
+  );
+  if (dataRepo.rowCount === 0) {
     return resStatus({
       res: res,
       status: 404,
-      message: '無此訂單細項編號',
+      message: '查無此訂單項目',
     });
   }
 

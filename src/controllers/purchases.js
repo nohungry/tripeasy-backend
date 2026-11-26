@@ -56,8 +56,8 @@ async function get_user_PurchasesItem(req, res, next) {
   try {
     const { order_item_id } = req.validatedParams;
     const dataRepo = await pool.query(
-      'SELECT * FROM public."user_order_item" where order_item_id = $1',
-      [order_item_id]
+      'SELECT * FROM public."user_order_item" where order_item_id = $1 AND 使用者編號 = $2',
+      [order_item_id, req.user.id]
     );
 
     if (dataRepo.rowCount > 0) {

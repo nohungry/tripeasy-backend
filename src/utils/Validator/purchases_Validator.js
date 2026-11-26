@@ -18,9 +18,9 @@ const querySchema = Joi.object({
     .valid(...supportedLanguages)
     .default('zh-TW')
     .messages({
-      'any.only': `「lang」僅支援：${supportedLanguages.join(', ')}`,
-      'string.base': '「lang」必須是文字',
-      'any.required': '「lang」為必填欄位',
+      'any.only': `「語言」僅支援：${supportedLanguages.join(', ')}`,
+      'string.base': '「語言」必須是文字',
+      'any.required': '「語言」為必填欄位',
     }),
 });
 
