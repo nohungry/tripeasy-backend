@@ -1,6 +1,6 @@
 const preferenceMap = require('../preferenceMap');
 const Joi = require('joi');
-const namePattern = /^[\u4e00-\u9fa5a-zA-Z0-9]{2,5}$/;
+const { nameSchema } = require('../nameRule');
 
 // 建立數字 → 文字的對應 map
 const reversePreferenceMap = Object.entries(preferenceMap).reduce((acc, [key, value]) => {
@@ -10,21 +10,7 @@ const reversePreferenceMap = Object.entries(preferenceMap).reduce((acc, [key, va
 
 // 自定義不允許空字串或空陣列
 const updateProfile_schema = Joi.object({
-  name: Joi.string()
-    .trim()
-    .pattern(namePattern)
-    .empty('') // 把空字串視為無效（觸發 string.empty）
-    .optional()
-    .custom((value, helpers) => {
-      if (value === '') {
-        return helpers.message('「姓名」不得為空白');
-      }
-      return value;
-    })
-    .messages({
-      'string.empty': '「姓名」不得為空白',
-      'string.pattern.base': '「姓名」不得包含特殊字元或空白，且需為 2 到 5 字元',
-    }),
+  name: nameSchema().optional(),
 
   preference: Joi.array()
     .items(Joi.string())

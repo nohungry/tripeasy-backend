@@ -6,6 +6,7 @@ const { signCaptcha, cookieOptions } = require('../utils/captcha');
 const resStatus = require('../utils/resStatus');
 const { pool } = require('../config/database');
 const { signLoginToken, signResetToken } = require('../utils/authToken');
+const { googleDisplayName } = require('../utils/nameRule');
 
 // [POST] 編號 01 : 使用者註冊、個人偏好設定
 async function post_user_SignUp(req, res, next) {
@@ -200,7 +201,7 @@ async function post_user_LoginGoogle(req, res, next) {
       // 2b. 如果使用者不存在，執行完整的全新註冊流程；Google 會員沒有密碼（NULL）
       const newUserResult = await client.query(
         'INSERT INTO public."user" (name, email, role, password, avatar_url, login_method, preference1, preference2, preference3) VALUES ($1, $2, $3, NULL, $4, 2, 1, 2, 3) RETURNING *',
-        [name, email, 'User', picture]
+        [googleDisplayName(name, email), email, 'User', picture]
       );
       user = newUserResult.rows[0];
 

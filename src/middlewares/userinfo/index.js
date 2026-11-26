@@ -9,6 +9,7 @@ const { pool } = require('../../config/database');
 // 資料驗證相關模組
 const userInfo_Validator = require('../../utils/Validator/userInfo_Validator.js');
 const preferenceNameToId = require('../../utils/preferenceMap');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [POST] 編號 01 : 使用者註冊、個人偏好設定
 async function postuserSignup(req, res, next) {
@@ -19,7 +20,7 @@ async function postuserSignup(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error.details[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,

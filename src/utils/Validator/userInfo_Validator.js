@@ -1,17 +1,12 @@
 const Joi = require('joi');
+const { nameSchema } = require('../nameRule');
 
-// 只允許中英數、不得含特殊符號與空白（2~5字）
-const namePattern = /^[a-zA-Z0-9\u4e00-\u9fa5]{2,5}$/;
 
 // 密碼需含大小寫字母與數字，禁止特殊符號與空白（8~32字）
 const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d]{8,16}$/;
 
 const baseSchema = Joi.object({
-  name: Joi.string().pattern(namePattern).messages({
-    'string.pattern.base':
-      '使用者名稱不符合規則，最少 2 個字元，最長 5 字元，不得包含特殊字元與空白。',
-    'any.required': '「使用者」為必填欄位',
-  }),
+  name: nameSchema(),
 
   email: Joi.string().email().lowercase().messages({
     'string.email': 'Email不符合規則，需符合 Email 格式。',
