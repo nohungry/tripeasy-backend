@@ -28,7 +28,7 @@ const collectionController = {
           res: res,
           status: 200,
           message: '查無資料',
-          dbdata: { data: [], total: 0 },
+          dbdata: { data: [], total },
         });
       }
 
