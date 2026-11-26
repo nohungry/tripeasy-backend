@@ -55,7 +55,7 @@ async function post_user_SignUp(req, res, next) {
         level: {
           level: level.level,
           name: level.name,
-          points: level.travel_point,
+          points: Math.max(0, Number(level.travel_point)),
         },
       },
     });
@@ -121,7 +121,7 @@ async function post_user_LoginEmail(req, res, next) {
         level: {
           level: level.level,
           name: level.name,
-          points: level.travel_point,
+          points: Math.max(0, Number(level.travel_point)),
           badge_url: level.badge_url,
         },
       },
@@ -247,7 +247,7 @@ async function post_user_LoginGoogle(req, res, next) {
         level: {
           level: level.level,
           name: level.name,
-          points: level.travel_point,
+          points: Math.max(0, Number(level.travel_point)),
           badge_url: level.badge_url,
         },
       },
@@ -377,7 +377,7 @@ async function get_user_loginStatus(req, res, next) {
         level: {
           level: level.rows[0].level,
           name: level.rows[0].name,
-          points: level.rows[0].travel_point,
+          points: Math.max(0, Number(level.rows[0].travel_point)),
           badge_url: level.rows[0].badge_url,
         },
       },

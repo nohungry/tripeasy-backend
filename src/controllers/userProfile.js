@@ -147,18 +147,21 @@ async function get_user_PointCoupon(req, res, next) {
           level: row['旅遊等級'],
           level_name: row['旅遊等級名稱'],
           badge_url: row['旅遊徽章 Url'],
-          travel_point: row['使用者旅遊積分'],
+          travel_point: Math.max(Number(row['使用者旅遊積分']), 0),
           coupon: [], // 用來收集此人所有優惠券
         });
       }
 
-      userMap.get(userId).coupon.push({
-        coupon_id: row['優惠卷編號'],
-        code: row['優惠卷代碼'],
-        discount: row['優惠卷折扣'],
-        description: row['優惠卷描述'],
-        expire_date: row['優惠卷期限'],
-      });
+      // LEFT JOIN：沒有可用優惠卷時優惠卷欄位全為 NULL，不放進清單
+      if (row['優惠卷編號'] !== null) {
+        userMap.get(userId).coupon.push({
+          coupon_id: row['優惠卷編號'],
+          code: row['優惠卷代碼'],
+          discount: row['優惠卷折扣'],
+          description: row['優惠卷描述'],
+          expire_date: row['優惠卷期限'],
+        });
+      }
     }
 
     const data = Array.from(userMap.values());

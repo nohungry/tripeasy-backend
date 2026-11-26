@@ -14,6 +14,7 @@ const collectionRouter = require('./routes/collection');
 const automationRouter = require('./routes/automation');
 const purchasesRouter = require('./routes/purchases');
 const ordersRouter = require('./routes/orders');
+const pointsRouter = require('./routes/points');
 const productRouter = require('./routes/product');
 const productAdminRouter = require('./routes/product_admin');
 const homeRouter = require('./routes/home');
@@ -98,6 +99,7 @@ app.use(`/api/${version}/user/collection`, collectionRouter);
 // 編號 20~21 : 個人訂單項目
 app.use(`/api/${version}/user/purchases`, purchasesRouter);
 app.use(`/api/${version}/user/orders`, ordersRouter);
+app.use(`/api/${version}/user/points`, pointsRouter);
 
 // 編號 22~25 : 查詢功能
 app.use(`/api/${version}/user/product/search`, productRouter);
