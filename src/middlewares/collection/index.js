@@ -1,130 +1,35 @@
-const { pool } = require('../../config/database');
 const resStatus = require('../../utils/resStatus');
-
-// 資料驗證相關模組
 const isValidator = require('../../utils/Validator/collection_Validator.js');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [GET] 編號 17 : 使用者查看收藏項目
 async function getCollection(req, res, next) {
-  const { error } = isValidator.getSchema.validate(req.query, {
-    abortEarly: false,
-    stripUnknown: true,
-  });
-
+  const { error, value } = isValidator.listSchema.validate(req.query, { stripUnknown: true });
   if (error) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '欄位未填寫正確',
-    });
-    return;
+    return resStatus({ res, status: 400, message: userMessage(error) });
   }
-
+  req.query = value;
   next();
 }
 
-// [POST] 編號 18 : 使用者加入收藏項目
+// [POST] 編號 18 : 使用者加入收藏項目（行程是否存在、是否上架由 controller 判斷）
 async function postCollection(req, res, next) {
-  const { tour_id } = req.params;
-  const user_id = req.user.id;
-
-  const { error } = isValidator.postSchema.validate(req.params, {
-    abortEarly: false,
-    stripUnknown: true,
-  });
-
+  const { error } = isValidator.tourIDSchema.validate(req.params, { stripUnknown: true });
   if (error) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '欄位未填寫正確',
-    });
-    return;
+    return resStatus({ res, status: 400, message: userMessage(error) });
   }
-
-  //檢查有無此商品
-  const result = await pool.query('SELECT * FROM tour WHERE tour_id = $1', [tour_id]);
-  if (result.rows.length === 0) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '查無此項目',
-    });
-    return;
-  }
-
-  //檢查有無此人
-  const userResult = await pool.query('SELECT * FROM public.user WHERE user_id = $1', [user_id]);
-  if (userResult.rows.length === 0) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '查無此人',
-    });
-    return;
-  }
-
-  //檢查是否已收藏
-  const favoriteCheck = await pool.query(
-    'SELECT 1 FROM favorite WHERE user_id = $1 AND tour_id = $2',
-    [user_id, tour_id]
-  );
-  if (favoriteCheck.rows.length > 0) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '已經收藏過此項目',
-    });
-    return;
-  }
-
   next();
 }
 
-// [DELETE] 編號 19 : 使用者刪除收藏項目
+// [DELETE] 編號 19 : 使用者刪除收藏項目（擁有者條件寫在 controller 的 SQL）
 async function deleteCollection(req, res, next) {
-  const { favorite_id } = req.params;
-  const user_id = req.user.id;
-
-  const { error } = isValidator.deleteSchema.validate(req.params, {
-    abortEarly: false,
-    stripUnknown: true,
-  });
+  const { error } = isValidator.favoriteIDSchema.validate(req.params, { stripUnknown: true });
   if (error) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '欄位未填寫正確',
-    });
-    return;
+    return resStatus({ res, status: 400, message: userMessage(error) });
   }
-
-  const result = await pool.query(
-    'SELECT * FROM favorite WHERE user_id = $1 AND favorite_id = $2',
-    [user_id, favorite_id]
-  );
-  if (result.rows.length === 0) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '查無此項目',
-    });
-    return;
-  }
-
-  //檢查有無此人
-  const userResult = await pool.query('SELECT * FROM public.user WHERE user_id = $1', [user_id]);
-  if (userResult.rows.length === 0) {
-    resStatus({
-      res: res,
-      status: 400,
-      message: '查無此人',
-    });
-    return;
-  }
-
   next();
 }
+
 module.exports = {
   getCollection,
   postCollection,

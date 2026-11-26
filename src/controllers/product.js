@@ -293,6 +293,7 @@ async function get_tourDetails(req, res, next) {
             description: tourDetailsRepo.rows[0].旅遊描述,
             tags: preferences,
             is_favorited: tourDetailsRepo.rows[0].收藏狀態,
+            favorite_id: tourDetailsRepo.rows[0].收藏編號 ?? null,
             emergency_notice: tourDetailsRepo.rows[0].異動通知內容,
             promotion: {
               is_promoted: tourDetailsRepo.rows[0].促銷價錢 ? true : false,
@@ -368,6 +369,7 @@ async function get_tourDetails(req, res, next) {
             description: tourDetailsRepo.rows[0].旅遊描述,
             tags: preferences,
             is_favorited: tourDetailsRepo.rows[0].收藏狀態,
+            favorite_id: tourDetailsRepo.rows[0].收藏編號 ?? null,
             emergency_notice: tourDetailsRepo.rows[0].異動通知內容,
             promotion: {
               is_promoted: tourDetailsRepo.rows[0].促銷價錢 ? true : false,
@@ -459,6 +461,7 @@ async function get_tourDetails(req, res, next) {
             description: tourDetailsRepo.rows[0].旅遊描述,
             tags: preferences,
             is_favorited: tourDetailsRepo.rows[0].收藏狀態,
+            favorite_id: tourDetailsRepo.rows[0].收藏編號 ?? null,
             emergency_notice: tourDetailsRepo.rows[0].異動通知內容,
             promotion: {
               is_promoted: tourDetailsRepo.rows[0].促銷價錢 ? true : false,

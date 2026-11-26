@@ -100,7 +100,8 @@ RETURNS TABLE(
     "偏好分類2" smallint,
     "偏好分類3" smallint,
     "異動通知內容" text,
-    "收藏狀態" boolean
+    "收藏狀態" boolean,
+    "收藏編號" uuid
 )
 LANGUAGE sql STABLE AS $$
 SELECT
@@ -109,7 +110,8 @@ SELECT
     tb."價錢", tb."促銷價錢", tb."促銷開始日期", tb."促銷結束日期", tb."旅遊開始日期",
     tb."旅遊結束日期", tb."旅遊天數", tb."旅遊代表圖 Url", tb."偏好分類1", tb."偏好分類2",
     tb."偏好分類3", tb."異動通知內容",
-    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_travel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態"
+    EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_travel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    (SELECT f.favorite_id FROM favorite f WHERE f.user_id = tour_travel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏編號"
 FROM tour_base tb
 WHERE tb."上下架狀態" = 1
 $$;
@@ -176,6 +178,7 @@ RETURNS TABLE(
     "偏好設定分類 2" smallint,
     "偏好設定分類 3" smallint,
     "收藏狀態" boolean,
+    "收藏編號" uuid,
     "異動通知內容" text,
     "促銷價錢" double precision,
     "通知狀態" varchar,
@@ -221,6 +224,7 @@ SELECT
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
     EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_tour_detail.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    (SELECT f.favorite_id FROM favorite f WHERE f.user_id = tour_tour_detail.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏編號",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
@@ -276,6 +280,7 @@ RETURNS TABLE(
     "偏好設定分類 2" smallint,
     "偏好設定分類 3" smallint,
     "收藏狀態" boolean,
+    "收藏編號" uuid,
     "異動通知內容" text,
     "促銷價錢" double precision,
     "通知狀態" varchar,
@@ -324,6 +329,7 @@ SELECT
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
     EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_hotel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    (SELECT f.favorite_id FROM favorite f WHERE f.user_id = tour_hotel.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏編號",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
@@ -380,6 +386,7 @@ RETURNS TABLE(
     "偏好設定分類 2" smallint,
     "偏好設定分類 3" smallint,
     "收藏狀態" boolean,
+    "收藏編號" uuid,
     "異動通知內容" text,
     "促銷價錢" double precision,
     "通知狀態" varchar,
@@ -426,6 +433,7 @@ SELECT
     tb."偏好分類2" AS "偏好設定分類 2",
     tb."偏好分類3" AS "偏好設定分類 3",
     EXISTS (SELECT 1 FROM favorite f WHERE f.user_id = tour_restaurant.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏狀態",
+    (SELECT f.favorite_id FROM favorite f WHERE f.user_id = tour_restaurant.使用者編號 AND f.tour_id = tb."旅遊編號") AS "收藏編號",
     tb."異動通知內容" AS "異動通知內容",
     tb."促銷價錢" AS "促銷價錢",
     tb."通知狀態" AS "通知狀態",
