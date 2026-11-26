@@ -115,6 +115,14 @@ async function releaseReservations(client, orderId) {
   );
 }
 
+// 逾時或被取消後清空訂單的折扣欄位；呼叫端必須已鎖住該訂單（lock-order 例外 A）
+async function clearOrderDiscount(client, orderId) {
+  await client.query(
+    'UPDATE public."orders" SET discount_type = NULL, discount_price = NULL, updated_at = now() WHERE order_id = $1',
+    [orderId]
+  );
+}
+
 async function setOrderStatus(client, orderId, status) {
   await client.query(
     'UPDATE public."orders" SET payment_status = $2, updated_at = now() WHERE order_id = $1',
@@ -132,28 +140,44 @@ function tradeLimitSeconds() {
   return Math.min(Math.max(envNumber('NEWEBPAY_TRADE_LIMIT_SECONDS', 600), 60), 900);
 }
 
+// 訂單付款期限（分鐘）：pastOrderDeadline 與會員端訂單列表／明細的 deadline 共用
+function orderTimeoutMinutes() {
+  return envNumber('ORDER_PAYMENT_TIMEOUT_MINUTES', 60);
+}
+
+// 訂單期限的 SQL 表達式（created_at + 期限）；pastOrderDeadline 與會員端讀取共用同一段
+function orderDeadlineSql(createdAtExpr, minutesParam) {
+  return `${createdAtExpr} + make_interval(mins => ${minutesParam})`;
+}
+
 // 訂單自己的期限（created_at + ORDER_PAYMENT_TIMEOUT_MINUTES）是否已過；不改任何狀態
 async function pastOrderDeadline(client, orderId) {
-  const minutes = envNumber('ORDER_PAYMENT_TIMEOUT_MINUTES', 60);
+  const minutes = orderTimeoutMinutes();
   const result = await client.query(
-    `SELECT created_at + make_interval(mins => $2) < now() AS overdue
+    `SELECT ${orderDeadlineSql('created_at', '$2')} < now() AS overdue
      FROM public."orders" WHERE order_id = $1`,
     [orderId, minutes]
   );
   return Boolean(result.rows[0]?.overdue);
 }
 
+// 付款進行中的 SQL 表達式：payment_status = 0、尚未收到結果、且仍在藍新交易時限內
+// paymentInProgress 與會員端訂單列表／明細共用同一段
+function paymentInProgressSql(orderIdExpr, secsParam) {
+  return `EXISTS (
+       SELECT 1 FROM public."payment"
+       WHERE order_id = ${orderIdExpr} AND payment_status = 0 AND result_time IS NULL
+         AND created_at + make_interval(secs => ${secsParam}) > now()
+     )`;
+}
+
 // 付款進行中：payment_status = 0、尚未收到結果、且仍在藍新交易時限內
 async function paymentInProgress(client, orderId) {
   const limit = tradeLimitSeconds();
-  const result = await client.query(
-    `SELECT EXISTS (
-       SELECT 1 FROM public."payment"
-       WHERE order_id = $1 AND payment_status = 0 AND result_time IS NULL
-         AND created_at + make_interval(secs => $2) > now()
-     ) AS in_progress`,
-    [orderId, limit]
-  );
+  const result = await client.query(`SELECT ${paymentInProgressSql('$1', '$2')} AS in_progress`, [
+    orderId,
+    limit,
+  ]);
   return result.rows[0].in_progress;
 }
 
@@ -192,6 +216,7 @@ async function expireIfOverdue(client, order) {
 
   await setOrderStatus(client, order.order_id, ORDER_STATUS.EXPIRED);
   await releaseReservations(client, order.order_id);
+  await clearOrderDiscount(client, order.order_id);
   return true;
 }
 
@@ -207,6 +232,7 @@ async function cancelPendingOrders(client, userId, exceptOrderId = null) {
   for (const row of pending.rows) {
     await setOrderStatus(client, row.order_id, ORDER_STATUS.CANCELLED);
     await releaseReservations(client, row.order_id);
+    await clearOrderDiscount(client, row.order_id);
   }
   return pending.rowCount;
 }
@@ -425,12 +451,16 @@ module.exports = {
   refundOrder,
   ORDER_STATUS,
   tradeLimitSeconds,
+  orderTimeoutMinutes,
+  orderDeadlineSql,
   pastOrderDeadline,
+  paymentInProgressSql,
   settlePaidOrder,
   TradeError,
   lockOrder,
   computePayable,
   releaseReservations,
+  clearOrderDiscount,
   setOrderStatus,
   paymentInProgress,
   reservationMatches,

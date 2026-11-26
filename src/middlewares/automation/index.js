@@ -1,4 +1,5 @@
 const resStatus = require('../../utils/resStatus');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 const automation_Validator = require('../../utils/Validator/automation_Validator.js');
 
@@ -7,19 +8,15 @@ const automation_Validator = require('../../utils/Validator/automation_Validator
 
 // [PATCH] 編號 15 : 使用者勾選要有旅遊提醒
 async function patchearlyNoti(req, res, next) {
-  const { error } = automation_Validator.early_schema.validate(req.body);
+  const { error, value } = automation_Validator.early_schema.validate(req.body);
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error.details[0]?.message || '欄位驗證錯誤';
-    resStatus({
-      res: res,
-      status: 400,
-      message: message,
-    });
+    resStatus({ res, status: 400, message: userMessage(error) });
     return;
   }
 
+  req.body = value;
   next();
 }
 
@@ -29,12 +26,7 @@ async function patchpriceNoti(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error.details[0]?.message || '欄位驗證錯誤';
-    resStatus({
-      res: res,
-      status: 400,
-      message: message,
-    });
+    resStatus({ res, status: 400, message: userMessage(error) });
     return;
   }
 

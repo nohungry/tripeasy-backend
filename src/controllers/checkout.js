@@ -278,7 +278,7 @@ async function get_user_CheckoutOrder(req, res, next) {
         },
         payment_method: locked.payment_type,
         discount: {
-          type: locked.discount_type,
+          type: expired ? null : locked.discount_type,
           coupon_id: couponRepo.rowCount > 0 ? couponRepo.rows[0].coupon_id : null,
           coupon: couponRepo.rowCount > 0 ? couponRepo.rows[0].code : null,
           used_point: pointRepo.rowCount > 0 ? Math.abs(pointRepo.rows[0].point) : 0,
@@ -306,7 +306,7 @@ async function get_user_CheckoutOrder(req, res, next) {
           promo_subtotal: money.promo_subtotal,
           discount_amount: money.discount_amount,
           payable: money.payable,
-          discount_price: locked.discount_price,
+          discount_price: expired ? null : locked.discount_price,
           get_point: Math.floor(money.payable / 10),
           payment_status: paymentStatus,
         },

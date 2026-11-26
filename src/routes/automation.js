@@ -28,4 +28,7 @@ router.patch(
   controller.patch_price_notifiSettings
 );
 
+// [GET] 價格追蹤可選的國家與地區
+router.get('/regions', auth, authRole('User'), controller.get_trackingRegions);
+
 module.exports = router;

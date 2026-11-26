@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const { nameSchema } = require('./../nameRule');
 
 const cartIDSchema = Joi.object({
   cart_id: Joi.string().uuid({ version: 'uuidv4' }).required().messages({
@@ -19,15 +20,7 @@ const orderIDSchema = Joi.object({
 
 const postSchema = Joi.object({
   user: Joi.object({
-    name: Joi.string()
-      .pattern(/^[\u4e00-\u9fa5a-zA-Z0-9]{2,10}$/) // 中文、英數、2~10 字元，不含空白與特殊字元
-      .required()
-      .messages({
-        'string.pattern.base': '使用者名稱需為 2~10 字元，且不得包含空白或特殊字元',
-        'string.empty': '使用者名稱為必填欄位',
-        'any.required': '使用者名稱為必填欄位',
-        'string.base': '使用者名稱必須是文字',
-      }),
+    name: nameSchema().required(),
 
     email: Joi.string().email().required().messages({
       'string.email': 'Email 格式錯誤',

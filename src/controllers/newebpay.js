@@ -156,7 +156,7 @@ async function post_newebpay_notify(req, res, next) {
       return res.status(200).send('OK');
     }
 
-    // 7（先於金額核對，2026-11-25 修訂）：訂單已不是 0，通知（不論成功或失敗）一律只記錄，payment_status 維持 0。
+    // 4（先於金額核對，2026-11-25 修訂）：訂單已不是 0，通知（不論成功或失敗）一律只記錄，payment_status 維持 0。
     //    訂單已取消／逾時時保留已釋放，應付金額會回到未折抵的小計，不能拿來核對；金額核對只在訂單為 0 時進行。
     if (order.payment_status !== ORDER_STATUS.PENDING) {
       const info =
@@ -171,7 +171,7 @@ async function post_newebpay_notify(req, res, next) {
       return res.status(200).send('OK');
     }
 
-    // 4. 金額核對（應付金額只來自 computePayable）；記錄後要 COMMIT 才不會被回滾
+    // 5. 金額核對（應付金額只來自 computePayable）；記錄後要 COMMIT 才不會被回滾
     const { payable } = await computePayable(client, orderId);
     if (Number(result.Amt) !== payable) {
       await client.query(
@@ -190,7 +190,7 @@ async function post_newebpay_notify(req, res, next) {
         [payment.payment_id, message]
       );
     } else {
-      // 5. 成功且訂單為 0：payment → 1 並結算（同一個交易內）
+      // 7. 成功且訂單為 0：payment → 1 並結算（同一個交易內）
       await client.query(
         `UPDATE public."payment"
          SET payment_status = 1, return_data = $2, return_time = now(),

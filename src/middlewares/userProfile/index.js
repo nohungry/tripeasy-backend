@@ -4,6 +4,7 @@ const multer = require('multer');
 // 資料驗證相關模組
 const userprofile_Validator = require('../../utils/Validator/userprofile_Validator');
 const preferenceNameToId = require('../../utils/preferenceMap');
+const { userMessage } = require('../../utils/Validator/joiMessage.js');
 
 // [GET] 編號 10 : 使用者用戶資料呈現
 // 無
@@ -16,7 +17,7 @@ async function patchuserprofileData(req, res, next) {
 
   // [HTTP 400] 資料錯誤
   if (error) {
-    const message = error.details[0]?.message || '欄位驗證錯誤';
+    const message = userMessage(error);
     resStatus({
       res: res,
       status: 400,

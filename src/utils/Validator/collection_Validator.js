@@ -2,67 +2,41 @@ const Joi = require('joi');
 
 const supportedLanguages = ['zh-TW', 'en-US'];
 
-// UUID 驗證
-const UUIDField = Joi.string()
-  .guid({ version: ['uuidv4', 'uuidv5'] })
-  .required()
-  .messages({
-    'string.guid': 'ID 格式不正確，需為 UUID 格式',
-    'any.required': 'ID 為必填欄位',
-    'string.empty': 'ID 不可為空',
-  });
-
-// 不為空值的字串
-const nonEmptyString = Joi.string().min(1).required().messages({
-  'string.base': '欄位必須為字串',
-  'string.empty': '欄位不得為空',
-  'any.required': '欄位為必填欄位',
-});
-
-// 語言驗證
-const langSchema = Joi.string()
-  .valid(...supportedLanguages)
-  .required()
-  .messages({
-    'any.required': '語系為必填欄位',
-    'any.only': '語系僅支援 zh 或 en',
-    'string.empty': '語系不得為空',
-  });
-
-// 分頁參數驗證
-const getSchema = Joi.object({
+// GET /info/all：不分頁，只認 lang（其他鍵由 middleware 的 stripUnknown 忽略）
+const listSchema = Joi.object({
   lang: Joi.string()
     .valid(...supportedLanguages)
+    .default('zh-TW')
+    .messages({
+      'any.only': `「語言」僅支援：${supportedLanguages.join(', ')}`,
+      'string.base': '「語言」必須是文字',
+      'string.empty': '「語言」不可為空',
+    }),
+});
+
+const uuidField = (label) =>
+  Joi.string()
+    .uuid({ version: 'uuidv4' })
     .required()
     .messages({
-      'any.required': '語系為必填欄位',
-      'any.only': '語系僅支援 zh 或 en',
-      'string.empty': '語系不得為空',
-    }),
-  page: Joi.number().integer().min(1).required().messages({
-    'number.base': 'page 必須為數字',
-    'number.min': 'page 必須為正整數',
-    'any.required': 'page 為必填欄位',
-  }),
-  limit: Joi.number().integer().min(1).required().messages({
-    'number.base': 'limit 必須為數字',
-    'number.min': 'limit 必須為正整數',
-    'any.required': 'limit 為必填欄位',
-  }),
+      'string.guid': `「${label}」必須是有效的 UUID 格式`,
+      'string.base': `「${label}」必須是文字`,
+      'string.empty': `「${label}」不可為空`,
+      'any.required': `「${label}」為必填欄位`,
+    });
+
+// POST /info/:tour_id
+const tourIDSchema = Joi.object({
+  tour_id: uuidField('行程編號'),
 });
 
-// POST 請求驗證
-const postSchema = Joi.object({
-  tour_id: nonEmptyString,
-});
-
-// DELETE 或其他需要 ID 的情境
-const deleteSchema = Joi.object({
-  favorite_id: UUIDField,
+// DELETE /info/:favorite_id
+const favoriteIDSchema = Joi.object({
+  favorite_id: uuidField('收藏編號'),
 });
 
 module.exports = {
-  getSchema,
-  postSchema,
-  deleteSchema,
+  listSchema,
+  tourIDSchema,
+  favoriteIDSchema,
 };
