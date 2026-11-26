@@ -70,7 +70,7 @@ const collectionController = {
         return resStatus({ res: res, status: 404, message: '查無此旅遊項目' });
       }
 
-      // 衝突後、查詢前那筆剛好被刪掉的極小空窗：重來一次
+      // DO NOTHING 之後 SELECT 查不到（那筆剛好被同時刪掉）：回到 INSERT，最多 3 輪（首次加 2 次重試），3 輪都查不到就丟錯（500）
       for (let attempt = 0; attempt < 3; attempt++) {
         const inserted = await pool.query(
           `INSERT INTO public."favorite" (user_id, tour_id) VALUES ($1, $2)
