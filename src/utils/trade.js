@@ -115,6 +115,14 @@ async function releaseReservations(client, orderId) {
   );
 }
 
+// 逾時或被取消後清空訂單的折扣欄位；呼叫端必須已鎖住該訂單（lock-order 例外 A）
+async function clearOrderDiscount(client, orderId) {
+  await client.query(
+    'UPDATE public."orders" SET discount_type = NULL, discount_price = NULL, updated_at = now() WHERE order_id = $1',
+    [orderId]
+  );
+}
+
 async function setOrderStatus(client, orderId, status) {
   await client.query(
     'UPDATE public."orders" SET payment_status = $2, updated_at = now() WHERE order_id = $1',
@@ -208,6 +216,7 @@ async function expireIfOverdue(client, order) {
 
   await setOrderStatus(client, order.order_id, ORDER_STATUS.EXPIRED);
   await releaseReservations(client, order.order_id);
+  await clearOrderDiscount(client, order.order_id);
   return true;
 }
 
@@ -223,6 +232,7 @@ async function cancelPendingOrders(client, userId, exceptOrderId = null) {
   for (const row of pending.rows) {
     await setOrderStatus(client, row.order_id, ORDER_STATUS.CANCELLED);
     await releaseReservations(client, row.order_id);
+    await clearOrderDiscount(client, row.order_id);
   }
   return pending.rowCount;
 }
@@ -450,6 +460,7 @@ module.exports = {
   lockOrder,
   computePayable,
   releaseReservations,
+  clearOrderDiscount,
   setOrderStatus,
   paymentInProgress,
   reservationMatches,
